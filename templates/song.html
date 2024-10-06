@@ -1,0 +1,21 @@
+{% include "header.html" %}
+
+<div class="container">
+    <ul class="list-group list-group-flush">
+        {% for song in list_of_songs %}
+        <div class="row">
+            <img style="height: 100px;height: 100px" src="{{ song.img }}" class="rounded float-start col-3" alt="">
+            <li class="list-group-item col-6">{{song.name}} {% for artist in song.artists %}{{artist}} {%endfor%} </li>
+            <a class="btn btn-primary col-2" href="{{ url_for('adding_to_playlist', URI=song.URI) }}">Add</a>
+        </div>
+
+        {% endfor %}
+    </ul>
+
+</div>
+
+
+
+
+
+{% include "footer.html" %}
