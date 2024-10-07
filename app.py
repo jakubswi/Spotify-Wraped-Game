@@ -27,6 +27,7 @@ app = Flask(__name__)
 Bootstrap5(app)
 csrf = CSRFProtect(app)
 app.secret_key = os.environ["SECRET_KEY"]
+# session.permanent=True
 
 
 

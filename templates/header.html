@@ -5,8 +5,11 @@
     <title>Spotiffy Wrapped</title>
     {% block styles %}
     {{ bootstrap.load_css() }}
-    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
 
     {% endblock %}
 </head>
 <body>
+<header>
+    <h1>Spotify Wrapped Game</h1>
+</header>
