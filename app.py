@@ -44,11 +44,11 @@ def main_page():
 
 @app.route('/<URI>')
 def adding_to_playlist(URI):
-    if session['index']==0:
-        sp.playlist_add_items(session['PLAYLIST_ID'],[URI])
+    if session.get('index')==0:
+        sp.playlist_add_items(session.get('PLAYLIST_ID'),[URI])
         session['index']+=1
     else:
-        sp.playlist_add_items(session['PLAYLIST_ID'], [URI], random.randint(0, session.get('index')))
+        sp.playlist_add_items(session.get('PLAYLIST_ID'), [URI], random.randint(0, session.get('index')))
         session['index']+=1
 
     return redirect(url_for("main_page"))
