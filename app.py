@@ -45,10 +45,10 @@ def main_page():
 @app.route('/<URI>')
 def adding_to_playlist(URI):
     if session.get('index')==0:
-        sp.playlist_add_items(session.get('PLAYLIST_ID'),[URI])
+        sp.playlist_add_items(os.environ['PLAYLIST_ID'],[URI])
         session['index']+=1
     else:
-        sp.playlist_add_items(session.get('PLAYLIST_ID'), [URI], random.randint(0, session.get('index')))
+        sp.playlist_add_items(os.environ['PLAYLIST_ID'], [URI], random.randint(0, session.get('index')))
         session['index']+=1
 
     return redirect(url_for("main_page"))
@@ -62,10 +62,11 @@ def admin():
         auth_manager=SpotifyOAuth(client_secret=CLIENT_SECRET, redirect_uri=redirect_uri, client_id=CLIENT_ID,
                                   scope=scope,cache_handler=FlaskSessionCacheHandler(session)))
 
+
     if form.validate_on_submit():
         playlist_name=form.playlist.data
-        session['my_id']=sp.me()['id']
-        session['PLAYLIST_ID']=sp.user_playlist_create(session.get('my_id'),playlist_name,public=True, collaborative=False, description='Spotify Wrpped Game')['id']
+        os.environ['my_id']=sp.me()['id']
+        os.environ['PLAYLIST_ID']=sp.user_playlist_create(os.environ['my_id'],playlist_name,public=True, collaborative=False, description='Spotify Wrpped Game')['id']
         return redirect(url_for('main_page'))
 
 
