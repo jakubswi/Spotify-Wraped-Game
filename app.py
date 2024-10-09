@@ -1,18 +1,17 @@
-import random, os
-from flask import Flask, render_template, redirect, url_for, session
-import spotipy
-from spotipy import FlaskSessionCacheHandler
-from spotipy.oauth2 import SpotifyOAuth
+import random, os, requests
+from flask import Flask, render_template, redirect, url_for, request
 from flask_bootstrap import Bootstrap5
 from flask_wtf import FlaskForm, CSRFProtect
 from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired
 
 
-scope = ["playlist-modify-private", "playlist-modify-public"]
+TOKEN_DATA = ''
+SCOPE = "playlist-modify-private playlist-modify-public user-read-private user-read-email"
+
 CLIENT_ID=os.environ["CLIENT_ID"]
 CLIENT_SECRET=os.environ["CLIENT_SECRET"]
-redirect_uri=os.environ["REDIRECT_URL"]
+CALLBACK_URL=os.environ["CALLBACK_URL"]
 
 
 class SongForm(FlaskForm):
@@ -27,8 +26,8 @@ app = Flask(__name__)
 Bootstrap5(app)
 csrf = CSRFProtect(app)
 app.secret_key = os.environ["SECRET_KEY"]
-# session.permanent=True
 
+index=0
 
 
 @app.route('/',methods=['GET', 'POST'])
@@ -36,43 +35,57 @@ def main_page():
     form = SongForm()
     if form.validate_on_submit():
         song=form.song.data
-        response=sp.search(song)
+        response=requests.get('https://api.spotify.com/v1/search',headers={'Authorization': 'Bearer '+TOKEN_DATA},params={'q':song,'type':'track'}).json()
         songs = [{"URI": item["uri"], "name": item["name"], "artists": [artist["name"] for artist in item["artists"]],"img":item["album"]["images"][0]["url"]} for item in response["tracks"]["items"]]
-
         return render_template("song.html", list_of_songs=songs)
     return render_template("index.html", form=form)
 
 @app.route('/<URI>')
 def adding_to_playlist(URI):
-    if session.get('index')==0:
-        sp.playlist_add_items(os.environ['PLAYLIST_ID'],[URI])
-        session['index']+=1
+    global index
+    if index==0:
+        requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[URI],'position':0})
+        index+=1
     else:
-        sp.playlist_add_items(os.environ['PLAYLIST_ID'], [URI], random.randint(0, session.get('index')))
-        session['index']+=1
+        requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[URI],'position':random.randint(0,index)})
+        index+=1
 
     return redirect(url_for("main_page"))
 
-@app.route('/jakub',methods=['GET', 'POST'])
+@app.route('/playlist',methods=['GET', 'POST'])
 def admin():
-    global sp
-    session['index']=0
-    form=PlaylistForm()
-    sp = spotipy.Spotify(
-        auth_manager=SpotifyOAuth(client_secret=CLIENT_SECRET, redirect_uri=redirect_uri, client_id=CLIENT_ID,
-                                  scope=scope,cache_handler=FlaskSessionCacheHandler(session)))
+    global playlist_id, index
+    if not TOKEN_DATA:
+        return redirect(
+            f"https://accounts.spotify.com/authorize?client_id={CLIENT_ID}&response_type=code&redirect_uri={CALLBACK_URL}&scope={SCOPE}")
+    else:
+        index=0
+        form=PlaylistForm()
+
+        if form.validate_on_submit():
+            playlist_name=form.playlist.data
+            my_id=requests.get('https://api.spotify.com/v1/me',headers={'Authorization': 'Bearer '+TOKEN_DATA}).json()['id']
+            playlist_id=requests.post(f"https://api.spotify.com/v1/users/{my_id}/playlists",headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'name':playlist_name,'description':'Spotify wrapped game','public':True}).json()['id']
 
 
-    if form.validate_on_submit():
-        playlist_name=form.playlist.data
-        os.environ['my_id']=sp.me()['id']
-        os.environ['PLAYLIST_ID']=sp.user_playlist_create(os.environ['my_id'],playlist_name,public=True, collaborative=False, description='Spotify Wrpped Game')['id']
-        return redirect(url_for('main_page'))
+            return redirect(url_for('main_page'))
+        return render_template("admin.html", form=form)
 
+@app.route('/callback/')
+def callback():
+    global TOKEN_DATA
+    CODE=request.args['code']
+    TOKEN_DATA= requests.post('https://accounts.spotify.com/api/token',
+                             data={"code": CODE,
+                                   "redirect_uri": CALLBACK_URL,
+                                   "grant_type": "authorization_code",
+                                   "client_id": CLIENT_ID,
+                                   "client_secret": CLIENT_SECRET,
+                                   }).json()["access_token"]
+    return redirect(url_for("admin"))
 
-    return render_template("admin.html", form=form)
 
 
 
 if __name__ == "__main__":
-    app.run(debug=False)
+    app.run(debug=True)
