@@ -44,13 +44,13 @@ def main_page():
 def adding_to_playlist(URI):
     global index
     if index==0:
-        requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[URI],'position':0})
+        response=requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[URI],'position':0})
         index+=1
     else:
-        requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[URI],'position':random.randint(0,index)})
+        response=requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[URI],'position':random.randint(0,index)})
         index+=1
 
-    return redirect(url_for("main_page"))
+    return response.json()
 
 @app.route('/playlist',methods=['GET', 'POST'])
 def admin():
