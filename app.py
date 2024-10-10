@@ -40,18 +40,18 @@ def main_page():
         return render_template("song.html", list_of_songs=songs)
     return render_template("index.html", form=form)
 
-@app.route('/<URI>')
-def adding_to_playlist(URI):
+@app.route('/<uri>')
+def adding_to_playlist(uri):
     global index
     if index==0:
-        response=requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[URI],'position':0})
+        response=requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[uri],'position':0})
         if response.status_code!=201:
             return response.json()
         else:
             index+=1
 
     else:
-        response=requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[URI],'position':random.randint(0,index)})
+        response=requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[uri],'position':random.randint(0,index)})
         if response.status_code != 201:
             return response.json()
         else:
