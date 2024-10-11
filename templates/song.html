@@ -6,7 +6,7 @@
         <div class="row gap-3 justify-content-md-center">
             <img style="height: 100px;width: 100px" src="{{ song.img }}" class="rounded float-start col-3 p-2" alt="">
             <li class="list-group-item col-6">{{song.name}} {% for artist in song.artists %}{{artist}} {%endfor%} </li>
-            <a class="btn btn-primary col-2 p-2" href="{{ url_for('adding_to_playlist', uri=song.URI) }}">Add</a>
+            <a class="btn btn-primary col-2 p-2" href="{{ url_for('adding_to_list', song=song) }}">Add</a>
         </div>
 
         {% endfor %}

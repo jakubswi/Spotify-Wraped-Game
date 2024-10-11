@@ -2,8 +2,23 @@
 {% from 'bootstrap5/form.html' import render_form %}
 
 <div class="container-fluid col-8 ">
-   {{ render_form(form) }}
+   <div>
+      {{ render_form(form) }}
+   </div>
+   {% if added_songs != [] %}
+   <div>
+      <ul>
+         {% for song in added_songs %}
+         <div class="row gap-3 justify-content-md-center">
+               <img style="height: 100px;width: 100px" src="{{ song.img }}" class="rounded float-start col-3 p-2" alt="">
+               <li class="list-group-item col-6">{{song.name}} {% for artist in song.artists %}{{artist}} {%endfor%} </li>
+               <a class="btn btn-danger col-2 p-2" href="{{ url_for('removing_from_list', song=song) }}">Delete</a>
+         </div>
 
+      </ul>
+   </div>
+   {% endfor %}
+   {% endif %}
 </div>
 
 {% include "footer.html" %}

@@ -1,5 +1,7 @@
+import ast
+import json
 import random, os, requests
-from flask import Flask, render_template, redirect, url_for, request
+from flask import Flask, render_template, redirect, url_for, request, session
 from flask_bootstrap import Bootstrap5
 from flask_wtf import FlaskForm, CSRFProtect
 from wtforms import StringField, SubmitField
@@ -26,7 +28,6 @@ app = Flask(__name__)
 Bootstrap5(app)
 csrf = CSRFProtect(app)
 app.secret_key = os.environ["SECRET_KEY"]
-
 index=0
 
 
@@ -38,30 +39,54 @@ def main_page():
         response=requests.get('https://api.spotify.com/v1/search',headers={'Authorization': 'Bearer '+TOKEN_DATA},params={'q':song,'type':'track'}).json()
         songs = [{"URI": item["uri"], "name": item["name"], "artists": [artist["name"] for artist in item["artists"]],"img":item["album"]["images"][0]["url"]} for item in response["tracks"]["items"]]
         return render_template("song.html", list_of_songs=songs)
-    return render_template("index.html", form=form)
+    return render_template("index.html", form=form, added_songs=session.get('added_songs'))
 
-@app.route('/<uri>')
-def adding_to_playlist(uri):
-    global index
-    if index==0:
-        response=requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[uri],'position':0})
-        if response.status_code!=201:
-            return response.json()
+# @app.route('/<uri>')
+# def adding_to_playlist(uri):
+#     global index
+#     if index==0:
+#         response=requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[uri],'position':0})
+#         if response.status_code!=201:
+#             return response.json()
+#         else:
+#             index+=1
+#
+#     else:
+#         response=requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[uri],'position':random.randint(0,index)})
+#         if response.status_code != 201:
+#             return response.json()
+#         else:
+#             index += 1
+#
+#     return redirect(url_for('main_page'))
+
+@app.route('/adding_to_list/')
+def adding_to_list():
+        if session.get('added_songs') is not None:
+            lista=session.get('added_songs')
+            data = ast.literal_eval(request.args["song"])
+            lista.append(data)
+            session['added_songs'] = lista
+            return redirect(url_for('main_page'))
+
         else:
-            index+=1
+            session['added_songs']=[ast.literal_eval(request.args['song'])]
+            return redirect(url_for('main_page'))
 
-    else:
-        response=requests.post(f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',headers={'Authorization': 'Bearer '+TOKEN_DATA,'Content-Type':'application/json'},json={'uris':[uri],'position':random.randint(0,index)})
-        if response.status_code != 201:
-            return response.json()
-        else:
-            index += 1
 
+
+@app.route('/removing_from_list')
+def removing_from_list():
+    list=session.get('added_songs')
+    data=ast.literal_eval(request.args['song'])
+    del session['added_songs'][ast.literal_eval(request.args['song'])]
     return redirect(url_for('main_page'))
+
 
 @app.route('/playlist',methods=['GET', 'POST'])
 def admin():
     global playlist_id, index
+    session['added_songs']=[]
     if not TOKEN_DATA:
         return redirect(
             f"https://accounts.spotify.com/authorize?client_id={CLIENT_ID}&response_type=code&redirect_uri={CALLBACK_URL}&scope={SCOPE}")
@@ -95,4 +120,4 @@ def callback():
 
 
 if __name__ == "__main__":
-    app.run(debug=False)
+    app.run(debug=True)
