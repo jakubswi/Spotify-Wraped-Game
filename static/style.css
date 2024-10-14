@@ -19,6 +19,12 @@ a.btn-primary {
     padding: 12px 12px;
     border: 0px;
 }
+.btn-danger {
+    margin: 25px;
+    height: 40px;
+    padding: 12px 12px;
+    border: 0px;
+}
 
 .btn-primary:hover {
     background-color: #28518A;
