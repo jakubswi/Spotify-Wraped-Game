@@ -1,8 +1,8 @@
 {% include "header.html" %}
 {% from 'bootstrap5/form.html' import render_form %}
-
+{% if ready %}
 <div class="container-fluid col-lg-8 col-md-10 col-sm-12">
-   <div class="container-fluid col-lg-8 col-md-10 col-sm-12">
+   <div class="container-fluid col-lg-12 col-md-10 col-sm-12">
       {{ render_form(form) }}
    </div>
    {% if added_songs != None %}
@@ -20,6 +20,9 @@
    </div>
 
    {% endif %}
+   <div>
+      <a class="btn btn-danger col-2 p-2" href="{{ url_for('remove_all') }}">Delete All</a>
+   </div>
 </div>
-
+{% endif %}
 {% include "footer.html" %}

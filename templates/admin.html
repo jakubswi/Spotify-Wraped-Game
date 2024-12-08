@@ -5,7 +5,15 @@
    {{ render_form(form) }}
 
 </div>
+<div>
+{% for playlist in playlists %}
+    <div class="row gap-3 justify-content-md-center">
+        <h3>{{playlist.name}}</h3>
+        <img style="width: 100px;height: 100px" src="{{ playlist.img }}" class="rounded float-start col-3 p-2" alt="">
+        <a class="btn btn-primary col-2 p-2" href="{{ url_for('set_playlist', playlist_id=playlist.id, nr_tracks=playlist.nr_tracks) }}">Add</a>
+    </div>
 
-
+   {% endfor %}
+</div>
 
 {% include "footer.html" %}
