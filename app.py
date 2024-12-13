@@ -160,7 +160,6 @@ def set_playlist(playlist_id, nr_tracks):
     return redirect(url_for('main_page'))
 
 
-# TODO: Make it so it works for other users
 @app.route('/callback/')
 def callback():
     global TOKEN_DATA
