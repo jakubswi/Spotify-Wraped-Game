@@ -33,6 +33,7 @@ Bootstrap5(app)
 csrf = CSRFProtect(app)
 app.secret_key = os.environ["SECRET_KEY"]
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DB_URI")
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy()
 db.init_app(app)
 INDEX = 0
@@ -146,13 +147,14 @@ def admin():
 @app.route('/set_playlist/<playlist_id>/<nr_tracks>')
 def set_playlist(playlist_id, nr_tracks):
     global READY, INDEX
+    print(playlist_id, nr_tracks)
     if db.session.query(Playlist).filter_by(id=1) is None:
         new_playlist = Playlist(playlist_id=playlist_id)
         db.session.add(new_playlist)
         db.session.commit()
         READY = True
     else:
-        playlist = db.get_or_404(Playlist, 1)
+        playlist = db.session.query(Playlist).filter_by(id=1).first()
         playlist.playlist_id = playlist_id
         db.session.commit()
         READY = True
