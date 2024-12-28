@@ -5,12 +5,12 @@ import random
 import requests
 from flask import Flask, render_template, redirect, url_for, request, session
 from flask_bootstrap import Bootstrap5
-from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm, CSRFProtect
 from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired
 
 TOKEN_DATA = ''
+PLAYLIST_ID = ''
 READY = False
 SCOPE = "playlist-modify-private playlist-modify-public user-read-private user-read-email user-read-currently-playing user-read-playback-state"
 CLIENT_ID = os.environ["CLIENT_ID"]
@@ -32,20 +32,7 @@ app = Flask(__name__)
 Bootstrap5(app)
 csrf = CSRFProtect(app)
 app.secret_key = os.environ["SECRET_KEY"]
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DB_URI")
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy()
-db.init_app(app)
 INDEX = 0
-
-
-class Playlist(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    playlist_id = db.Column(db.String, unique=True, nullable=False)
-
-
-with app.app_context():
-    db.create_all()
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -65,8 +52,7 @@ def main_page():
 def adding_to_playlist():
     global INDEX
     list_of_songs_to_add = session.get('added_songs')
-    playlist = db.get_or_404(Playlist, 1)
-    PLAYLIST_ID = playlist.playlist_id
+
 
     if INDEX == 0:
         requests.post(f'https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks',
@@ -146,19 +132,10 @@ def admin():
 
 @app.route('/set_playlist/<playlist_id>/<nr_tracks>')
 def set_playlist(playlist_id, nr_tracks):
-    global READY, INDEX
-    print(playlist_id, nr_tracks)
-    if db.session.query(Playlist).filter_by(id=1) is None:
-        new_playlist = Playlist(playlist_id=playlist_id)
-        db.session.add(new_playlist)
-        db.session.commit()
-        READY = True
-    else:
-        playlist = db.session.query(Playlist).filter_by(id=1).first()
-        playlist.playlist_id = playlist_id
-        db.session.commit()
-        READY = True
+    global READY, INDEX, PLAYLIST_ID
+    PLAYLIST=playlist_id
     INDEX = int(nr_tracks)
+    READY = True
     return redirect(url_for('main_page'))
 
 
