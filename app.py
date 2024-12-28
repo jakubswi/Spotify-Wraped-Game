@@ -50,7 +50,7 @@ def main_page():
 
 @app.route('/adding_to_playlist')
 def adding_to_playlist():
-    global INDEX
+    global INDEX, PLAYLIST_ID
     list_of_songs_to_add = session.get('added_songs')
 
 
@@ -105,7 +105,7 @@ def remove_all():
 
 @app.route('/playlist', methods=['GET', 'POST'])
 def admin():
-    global INDEX, READY
+    global INDEX, READY,PLAYLIST_ID
     if not TOKEN_DATA:
         return redirect(
             f"https://accounts.spotify.com/authorize?client_id={CLIENT_ID}&response_type=code&redirect_uri={CALLBACK_URL}&scope={SCOPE}")
@@ -133,7 +133,7 @@ def admin():
 @app.route('/set_playlist/<playlist_id>/<nr_tracks>')
 def set_playlist(playlist_id, nr_tracks):
     global READY, INDEX, PLAYLIST_ID
-    PLAYLIST=playlist_id
+    PLAYLIST_ID=playlist_id
     INDEX = int(nr_tracks)
     READY = True
     return redirect(url_for('main_page'))
