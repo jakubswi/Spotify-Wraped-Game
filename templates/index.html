@@ -2,27 +2,30 @@
 {% from 'bootstrap5/form.html' import render_form %}
 {% if ready %}
 <div class="container-fluid col-lg-8 col-md-10 col-sm-12">
-   <div class="container-fluid col-lg-12 col-md-10 col-sm-12">
+   <div class="container-sm col-lg-12 col-md-10 col-sm-12">
       {{ render_form(form) }}
    </div>
    {% if added_songs != None %}
-   <div class="mt-4">
+   <div class="">
       <ul class="list-group">
          {% for song in added_songs %}
-         <div class="row align-items-center mb-3">
+         <div class="row align-items-center">
                <img style="height: 100px;width: 100px" src="{{ song.img }}" class="rounded float-start col-3 p-2" alt="">
                <li class="list-group-item col-6">{{song.name}} {% for artist in song.artists %}{{artist}} {%endfor%} </li>
-               <a class="btn btn-danger col-2 p-2" href="{{ url_for('removing_from_list', song=song) }}">Delete</a>
+               <a class="btn btn-danger col-2" href="{{ url_for('removing_from_list', song=song) }}">Delete</a>
          </div>
          {% endfor %}
       </ul>
       <a class="btn btn-primary w-100 w-md-auto" href="{{ url_for('adding_to_playlist') }}" role="button">Add all</a>
    </div>
 
-   {% endif %}
    <div>
       <a class="btn btn-danger col-2 p-2" href="{{ url_for('remove_all') }}">Delete All</a>
    </div>
+
+   {% endif %}
+
 </div>
+
 {% endif %}
 {% include "footer.html" %}
