@@ -8,15 +8,19 @@ input.btn-primary {
     background-color: #22267B;
     color: #17B794;
     margin: 25px;
-    height: 40px;
+    font-size: 30px;
+    font-weight: bold;
+    padding: 12px 12px;
     border: 0px;
 }
 a.btn-primary {
     background-color: #22267B;
     color: #17B794;
-    margin: 25px;
-    padding: 12px 12px;
-    border: 10px;
+    margin: 0;
+    padding: 10px 15px;
+    height: auto;
+    display: inline-block;
+    border: 0px;
 }
 .btn-danger {
     margin: 25px;
