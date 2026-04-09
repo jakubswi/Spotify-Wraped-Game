@@ -3,14 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spotiffy Wrapped</title>
+    <title>Spotify Wrapped</title>
     {% block styles %}
     {{ bootstrap.load_css() }}
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
     <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
-
     {% endblock %}
 </head>
 <body>
 <header>
-    <h1>Spotify Wrapped Game</h1>
+    <div class="container">
+        <h1>Spotify Wrapped Game</h1>
+    </div>
 </header>

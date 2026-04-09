@@ -1,31 +1,51 @@
 {% include "header.html" %}
 {% from 'bootstrap5/form.html' import render_form %}
-{% if ready %}
-<div class="container-fluid col-lg-8 col-md-10 col-sm-12">
-   <div class="container-sm col-lg-12 col-md-10 col-sm-12">
-      {{ render_form(form) }}
-   </div>
-   {% if added_songs != None %}
-   <div class="">
-      <ul class="list-group">
-         {% for song in added_songs %}
-         <div class="row align-items-center">
-               <img style="height: 100px;width: 100px" src="{{ song.img }}" class="rounded float-start col-3 p-2" alt="">
-               <li class="list-group-item col-6">{{song.name}} {% for artist in song.artists %}{{artist}} {%endfor%} </li>
-               <a class="btn btn-danger col-2" href="{{ url_for('removing_from_list', song=song) }}">Delete</a>
-         </div>
-         {% endfor %}
-      </ul>
-      <a class="btn btn-primary w-100 w-md-auto" href="{{ url_for('adding_to_playlist') }}" role="button">Add all</a>
-   </div>
 
-   <div>
-      <a class="btn btn-danger col-2 p-2" href="{{ url_for('remove_all') }}">Delete All</a>
-   </div>
+<div class="container my-4">
+    {% if ready %}
+    <div class="row justify-content-center mb-5">
+        <div class="col-lg-8 col-md-10">
+            <div class="card bg-transparent border-0">
+                <div class="card-body p-0 text-center">
+                    {{ render_form(form) }}
+                </div>
+            </div>
+        </div>
+    </div>
 
-   {% endif %}
+    {% if added_songs != None %}
+    <div class="row justify-content-center">
+        <div class="col-lg-8 col-md-10">
+            <h3 class="mb-4 text-center">Your Selected Songs</h3>
+            
+            <div class="list-group mb-4">
+                {% for song in added_songs %}
+                <div class="list-group-item">
+                    <img src="{{ song.img }}" class="song-img" alt="Cover">
+                    <div class="song-info">
+                        <div class="song-name">{{ song.name }}</div>
+                        <div class="song-artists">
+                            {% for artist in song.artists %}{{ artist }}{% if not loop.last %}, {% endif %}{% endfor %}
+                        </div>
+                    </div>
+                    <div class="ms-auto">
+                        <a class="btn btn-sm btn-danger px-3 py-1" style="font-size: 0.75rem;" href="{{ url_for('removing_from_list', song=song) }}">Remove</a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
 
+            {% if added_songs|length > 0 %}
+            <div class="d-flex flex-column flex-sm-row gap-3 justify-content-center mt-5">
+                <a class="btn btn-danger" href="{{ url_for('remove_all') }}">Delete All</a>
+                <a class="btn btn-primary" href="{{ url_for('adding_to_playlist') }}">Add All to Playlist</a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% endif %}
 </div>
 
-{% endif %}
 {% include "footer.html" %}

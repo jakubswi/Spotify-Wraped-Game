@@ -1,19 +1,34 @@
 {% include "header.html" %}
 {% from 'bootstrap5/form.html' import render_form %}
 
-<div class="container-fluid col-8">
-   {{ render_form(form) }}
-
-</div>
-<div>
-{% for playlist in playlists %}
-    <div class="row gap-3 justify-content-md-center">
-        <h3>{{playlist.name}}</h3>
-        <img style="width: 100px;height: 100px" src="{{ playlist.img }}" class="rounded float-start col-3 p-2" alt="">
-        <a class="btn btn-primary col-2 p-2" href="{{ url_for('set_playlist', playlist_id=playlist.id, nr_tracks=playlist.nr_tracks) }}">Add</a>
+<div class="container my-4">
+    <div class="row justify-content-center mb-5">
+        <div class="col-lg-8 col-md-10 text-center">
+            <h2 class="mb-4">Admin Dashboard</h2>
+            <div class="card bg-transparent border-0">
+                <div class="card-body p-0 text-center">
+                    {{ render_form(form) }}
+                </div>
+            </div>
+        </div>
     </div>
 
-   {% endfor %}
+    <div class="row justify-content-center">
+        <div class="col-12">
+            <h3 class="mb-4 text-center">Available Playlists</h3>
+            <div class="row g-4 justify-content-center">
+                {% for playlist in playlists %}
+                <div class="col-6 col-md-4 col-lg-3">
+                    <div class="playlist-card">
+                        <img src="{{ playlist.img }}" alt="Playlist Cover">
+                        <h3>{{ playlist.name }}</h3>
+                        <a class="btn btn-sm btn-primary w-100 mt-auto" href="{{ url_for('set_playlist', playlist_id=playlist.id, nr_tracks=playlist.nr_tracks) }}">Select</a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
 </div>
 
 {% include "footer.html" %}

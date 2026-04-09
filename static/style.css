@@ -1,68 +1,195 @@
+:root {
+    --bg-color: #121212;
+    --surface-color: #181818;
+    --surface-hover: #282828;
+    --primary-color: #1DB954;
+    --primary-hover: #1ed760;
+    --text-primary: #FFFFFF;
+    --text-secondary: #b3b3b3;
+    --danger-color: #e22134;
+    --danger-hover: #ff334b;
+}
+
 body {
-    background-color: #01005E;
-    color: #17B794;
-    text-align: center;
-    padding: 30px
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-family: 'Montserrat', Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 40px;
 }
-input.btn-primary {
-    background-color: #22267B;
-    color: #17B794;
-    margin: 25px;
-    font-size: 30px;
-    font-weight: bold;
-    padding: 12px 12px;
-    border: 0px;
+
+/* Header */
+header {
+    padding: 24px 0;
+    margin-bottom: 32px;
+    background: linear-gradient(rgba(29, 185, 84, 0.2), var(--bg-color));
+    border-bottom: 1px solid var(--surface-hover);
 }
-a.btn-primary {
-    background-color: #22267B;
-    color: #17B794;
+
+header h1 {
+    font-weight: 700;
+    font-size: 2.5rem;
     margin: 0;
-    padding: 10px 15px;
-    height: auto;
-    display: inline-block;
-    border: 0px;
-}
-.btn-danger {
-    margin: 25px;
-    padding: 12px 12px;
-    border: 10px;
+    color: var(--text-primary);
+    text-align: center;
 }
 
-.btn-primary:hover {
-    background-color: #28518A;
-}
-input {
-    background-color: #28518A
-}
-form {
-    padding: 100px
-}
+/* Forms */
 .form-control {
-    background-color: #28518A
+    background-color: var(--surface-hover);
+    border: 1px solid transparent;
+    color: var(--text-primary);
+    border-radius: 500px;
+    padding: 14px 24px;
+    font-size: 1.1rem;
 }
-.list-group-item {
-    background-color: #22267B;
-    color: #17B794;
-    margin: 25px;
-    text-align: left;
-    border-radius: 15px;
-    border: 10px;
-    padding: 12px;
 
+.form-control:focus {
+    background-color: var(--surface-color);
+    border-color: #727272;
+    color: var(--text-primary);
+    box-shadow: none;
 }
+
 label {
-    font-weight: bold;
-    font-size: 3rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    font-size: 1.25rem;
 }
-input[type=text] {
-  width: 100%;
-  padding: 12px 20px;
-  margin: 8px 0;
-  box-sizing: border-box;
-  border: none;
-  background-color: #28518A;
-  color: #17B794;
+
+/* Buttons */
+.btn-primary, input.btn-primary, input[type="submit"] {
+    background-color: var(--primary-color);
+    color: #000;
+    border: none;
+    border-radius: 500px;
+    padding: 12px 32px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
 }
-h1 {
-    font-weight: bold;
+
+.btn-primary:hover, input.btn-primary:hover, input[type="submit"]:hover {
+    background-color: var(--primary-hover);
+    color: #000;
+    transform: scale(1.04);
+}
+
+.btn-danger {
+    background-color: transparent;
+    color: var(--danger-color);
+    border: 1px solid var(--danger-color);
+    border-radius: 500px;
+    padding: 10px 24px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.btn-danger:hover {
+    background-color: var(--danger-color);
+    color: #fff;
+    border-color: var(--danger-color);
+}
+
+.btn-outline-light {
+    border-radius: 500px;
+    padding: 10px 24px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* Lists and Cards */
+.list-group {
+    background: transparent;
+    border-radius: 0;
+}
+
+.list-group-item {
+    background-color: transparent;
+    border: none;
+    color: var(--text-primary);
+    padding: 12px 16px;
+    border-radius: 8px !important;
+    transition: background-color 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 4px;
+}
+
+.list-group-item:hover {
+    background-color: var(--surface-hover);
+}
+
+.song-img {
+    width: 56px;
+    height: 56px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+.song-info {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+}
+
+.song-name {
+    font-weight: 600;
+    font-size: 1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 4px;
+}
+
+.song-artists {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Admin playlist cards */
+.playlist-card {
+    background-color: var(--surface-color);
+    border-radius: 8px;
+    padding: 16px;
+    transition: background-color 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 16px;
+    height: 100%;
+}
+
+.playlist-card:hover {
+    background-color: var(--surface-hover);
+}
+
+.playlist-card img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+.playlist-card h3 {
+    font-size: 1.1rem;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
 }
