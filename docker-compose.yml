@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: spotify-wraped
+    secrets:
+      - CLIENT_ID
+      - CLIENT_SECRET
+    expose:
+      - "5000"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+    restart: unless-stopped
+
+
+secrets:
+  CLIENT_ID:
+    file: ./secrets/CLIENT_ID.txt
+  CLIENT_SECRET:
+    file: ./secrets/CLIENT_SECRET.txt

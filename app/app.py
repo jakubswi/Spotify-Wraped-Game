@@ -4,9 +4,10 @@ import os
 import random
 
 import requests
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, redirect, render_template, request, session, url_for, jsonify
 from flask_bootstrap import Bootstrap5
 from flask_wtf import CSRFProtect, FlaskForm
+from werkzeug.middleware.proxy_fix import ProxyFix
 from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired
 
@@ -14,7 +15,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
+
+
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-please-change")
 Bootstrap5(app)
 csrf = CSRFProtect(app)
 
@@ -22,11 +27,18 @@ SCOPE = (
     "playlist-modify-private playlist-modify-public user-read-private "
     "user-read-email user-read-currently-playing user-read-playback-state"
 )
+def get_secret(secret_name, env_name, default=""):
+    try:
+        with open(f"/run/secrets/{secret_name}", "r") as f:
+            return f.read().strip()
+    except IOError:
+        return os.environ.get(env_name, default)
 
-CLIENT_ID = os.environ.get("CLIENT_ID", "")
-CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "")
-CALLBACK_URL = os.environ.get("CALLBACK_URL", "http://localhost:5000/callback/")
+CLIENT_ID = get_secret("CLIENT_ID", "CLIENT_ID")
+CLIENT_SECRET = get_secret("CLIENT_SECRET", "CLIENT_SECRET")
 
+if not CLIENT_ID or not CLIENT_SECRET:
+    logger.warning("Spotify CLIENT_ID and CLIENT_SECRET are not set in the environment.")
 
 
 class SongForm(FlaskForm):
@@ -42,6 +54,11 @@ class PlaylistForm(FlaskForm):
 def get_auth_header():
     token = session.get('token_data')
     return {'Authorization': f'Bearer {token}'} if token else {}
+
+
+@app.route('/health')
+def health_check():
+    return jsonify(status="healthy"), 200
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -68,7 +85,8 @@ def main_page():
                     "URI": item.get("uri"),
                     "name": item.get("name"),
                     "artists": [artist.get("name") for artist in item.get("artists", [])],
-                    "img": item.get("album", {}).get("images", [{}])[0].get("url") if item.get("album", {}).get("images") else ""
+                    "img": item.get("album", {}).get("images", [{}])[0].get("url") if item.get("album", {}).get(
+                        "images") else ""
                 }
                 for item in items
             ]
@@ -85,18 +103,18 @@ def adding_to_playlist():
     list_of_songs_to_add = session.get('added_songs', [])
     playlist_id = session.get('playlist_id')
     index = session.get('index', 0)
-    
+
     if not playlist_id or not list_of_songs_to_add:
         return redirect(url_for('main_page'))
 
     headers = get_auth_header()
     headers['Content-Type'] = 'application/json'
-    
+
     try:
         for song in list_of_songs_to_add:
             position = 0 if index == 0 else random.randint(0, index)
             payload = {'uris': [song['URI']], 'position': position}
-            
+
             response = requests.post(
                 f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',
                 headers=headers,
@@ -105,7 +123,7 @@ def adding_to_playlist():
             )
             response.raise_for_status()
             index += 1
-            
+
         session['index'] = index
         session['added_songs'] = []
     except requests.RequestException as e:
@@ -156,14 +174,22 @@ def remove_all():
     return redirect(url_for('main_page'))
 
 
+from urllib.parse import urlencode, quote
+
 @app.route('/playlist', methods=['GET', 'POST'])
 def admin():
     token = session.get('token_data')
     if not token:
-        auth_url = (
-            f"https://accounts.spotify.com/authorize?client_id={CLIENT_ID}"
-            f"&response_type=code&redirect_uri={CALLBACK_URL}&scope={SCOPE}"
-        )
+        # Hardcoding the exact URI with port 80 to match Spotify Dashboard
+        callback_url = "http://127.0.0.1:80/callback"
+        params = {
+            'client_id': CLIENT_ID,
+            'response_type': 'code',
+            'redirect_uri': callback_url,
+            'scope': SCOPE
+        }
+        auth_url = f"https://accounts.spotify.com/authorize?{urlencode(params, quote_via=quote)}"
+        logger.info(f"Redirecting to Spotify auth URL: {auth_url}")
         return redirect(auth_url)
 
     form = PlaylistForm()
@@ -192,7 +218,7 @@ def admin():
             timeout=10
         )
         playlists_resp.raise_for_status()
-        
+
         playlists = []
         for item in playlists_resp.json().get("items", []):
             img_url = item["images"][0]["url"] if item.get("images") else None
@@ -210,7 +236,7 @@ def admin():
         if isinstance(e, requests.HTTPError) and e.response.status_code == 401:
             session.pop('token_data', None)
             return redirect(url_for('admin'))
-        
+
         return redirect(url_for('main_page'))
 
 
@@ -222,7 +248,7 @@ def set_playlist(playlist_id, nr_tracks):
     return redirect(url_for('main_page'))
 
 
-@app.route('/callback/')
+@app.route('/callback')
 def callback():
     code = request.args.get('code')
     if not code:
@@ -230,11 +256,13 @@ def callback():
         return redirect(url_for('main_page'))
 
     try:
+        # Hardcoding the exact URI with port 80 to match Spotify Dashboard
+        callback_url = "http://127.0.0.1:80/callback"
         response = requests.post(
             'https://accounts.spotify.com/api/token',
             data={
                 "code": code,
-                "redirect_uri": CALLBACK_URL,
+                "redirect_uri": callback_url,
                 "grant_type": "authorization_code",
                 "client_id": CLIENT_ID,
                 "client_secret": CLIENT_SECRET,
@@ -245,9 +273,9 @@ def callback():
         session['token_data'] = response.json().get("access_token")
     except requests.RequestException as e:
         logger.error(f"Error fetching token: {e}")
-        
+
     return redirect(url_for("admin"))
 
 
 if __name__ == "__main__":
-    app.run(debug=False)
+    app.run(debug=False, host='0.0.0.0', port=5000)
