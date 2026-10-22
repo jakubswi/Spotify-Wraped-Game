@@ -1,0 +1,29 @@
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../docker/backend/Dockerfile
+    image: spotify-wrapped-api
+    secrets:
+      - CLIENT_ID
+      - CLIENT_SECRET
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../docker/frontend/Dockerfile
+    image: spotify-wrapped-ui
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+secrets:
+  CLIENT_ID:
+    file: ./secrets/CLIENT_ID.txt
+  CLIENT_SECRET:
+    file: ./secrets/CLIENT_SECRET.txt

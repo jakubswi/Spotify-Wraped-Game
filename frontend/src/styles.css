@@ -1,0 +1,72 @@
+@import 'bootstrap/dist/css/bootstrap.min.css';
+
+:root {
+    --bg-color: #121212;
+    --surface-color: #181818;
+    --surface-hover: #282828;
+    --primary-color: #1DB954;
+    --primary-hover: #1ed760;
+    --text-primary: #FFFFFF;
+    --text-secondary: #b3b3b3;
+    --danger-color: #e22134;
+    --danger-hover: #ff334b;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-family: 'Montserrat', Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 40px;
+}
+
+/* Base components matching your old template */
+.form-control {
+    background-color: var(--surface-hover);
+    border: 1px solid transparent;
+    color: var(--text-primary);
+    border-radius: 500px;
+    padding: 14px 24px;
+}
+.form-control:focus {
+    background-color: var(--surface-color);
+    border-color: #727272;
+    color: var(--text-primary);
+    box-shadow: none;
+}
+.btn-primary {
+    background-color: var(--primary-color);
+    color: #000;
+    border: none;
+    border-radius: 500px;
+    padding: 12px 32px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.btn-primary:hover {
+    background-color: var(--primary-hover);
+    color: #000;
+    transform: scale(1.04);
+}
+.kahoot-card {
+    background-color: var(--surface-color);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.song-img {
+    width: 56px;
+    height: 56px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+.voting-btn {
+    height: 100px;
+    font-size: 1.5rem;
+    font-weight: bold;
+    border-radius: 12px;
+    transition: transform 0.2s;
+}
+.voting-btn:hover {
+    transform: scale(1.05);
+}
