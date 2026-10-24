@@ -36,7 +36,7 @@ jobs:
       - name: Build and push Backend Image
         uses: docker/build-push-action@v5
         with:
-          context: ./backend
+          context: ./docker/backend
           file: ./backend/Dockerfile
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           tags: |
@@ -48,7 +48,7 @@ jobs:
       - name: Build and push Frontend Image
         uses: docker/build-push-action@v5
         with:
-          context: ./frontend
+          context: ./docker/frontend
           file: ./frontend/Dockerfile
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           tags: |
