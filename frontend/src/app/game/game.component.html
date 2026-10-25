@@ -88,35 +88,42 @@
             </div>
         </div>
 
-        <div *ngIf="state.state === 'VOTING'" class="text-center">
-            <h2 class="mb-5">Who submitted this song?</h2>
+      <div *ngIf="state.state === 'VOTING'" class="text-center">
 
-            <div *ngIf="isHost" class="mb-4">
-                <iframe [src]="getSpotifyEmbedUrl(state.current_song?.id)"
-                        width="300" height="80" frameborder="0" allowtransparency="true" allow="encrypted-media">
-                </iframe>
-                <p class="text-warning small mt-2">Only you (the host) can see and play this!</p>
-            </div>
-
-            <div class="kahoot-card d-inline-block px-5 py-4 mb-5">
-                <h1 class="display-4 text-success fw-bold">{{ state.current_song?.name }}</h1>
-            </div>
-
-            <div *ngIf="!hasVoted" class="row justify-content-center g-3">
-                <div class="col-6 col-md-4 col-lg-3" *ngFor="let p of state.players">
-                    <button (click)="voteForPlayer(p)"
-                            class="btn w-100 voting-btn"
-                            [ngClass]="{'btn-primary': true}"
-                            [disabled]="p === gameService.username">
-                        {{ p }}
-                    </button>
-                </div>
-            </div>
-
-            <div *ngIf="hasVoted">
-                <h3 class="text-secondary mt-4">Vote cast! Waiting for others...</h3>
-            </div>
+        <div *ngIf="isHost" class="mb-4">
+          <iframe [src]="getSpotifyEmbedUrl(state.current_song?.id)"
+                  width="300" height="80" frameborder="0" allowtransparency="true" allow="encrypted-media">
+          </iframe>
+          <p class="text-warning small mt-2">Only you (the host) can see and play this!</p>
         </div>
+
+        <div class="kahoot-card d-inline-block px-5 py-4 mb-5">
+          <h1 class="display-4 text-success fw-bold">{{ state.current_song?.name }}</h1>
+        </div>
+
+        <ng-container *ngIf="state.current_song?.owner_id !== gameService.username">
+          <h3>Who submitted this song?</h3>
+
+          <div *ngIf="!hasVoted" class="row justify-content-center g-3 mt-4">
+            <div class="col-6 col-md-4 col-lg-3" *ngFor="let p of state.players">
+              <button (click)="voteForPlayer(p)"
+                      class="btn w-100 voting-btn btn-primary"
+                      [disabled]="p === gameService.username">
+                {{ p }}
+              </button>
+            </div>
+          </div>
+
+          <div *ngIf="hasVoted">
+            <h3 class="text-secondary mt-4">Vote cast! Waiting for others...</h3>
+          </div>
+        </ng-container>
+        <ng-container *ngIf="state.current_song?.owner_id === gameService.username">
+          <h3>This is your song!</h3>
+          <p class="text-secondary mt-3">Sit tight and wait for the others to cast their votes.</p>
+        </ng-container>
+
+      </div>
 
         <div *ngIf="state.state === 'REVEAL'" class="text-center kahoot-card py-5">
             <h2 class="mb-4">And the song belongs to...</h2>

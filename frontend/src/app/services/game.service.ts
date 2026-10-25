@@ -1,83 +1,83 @@
-import { Injectable } from '@angular/core';
+import { Injectable, OnDestroy } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
+import { environment } from '../../environments/environment';
 
-export interface GameState {
-  state: string;
-  players: string[];
-  host: string;
-  current_song?: {
-    id: string;
-    name: string;
-    owner_id: string;
-  } | null;
-  scores?: Record<string, number>;
+export interface Song {
+  id: string;
+  uri: string;
+  name: string;
+  artist: string;
+  img: string;
+  owner_id: string;
 }
 
-@Injectable({
-  providedIn: 'root'
-})
-export class GameService {
-  socket?: WebSocket;
-  lobbyId?: string;
-  username?: string;
-  gameState$ = new BehaviorSubject<GameState | null>(null);
+export interface GameState {
+  state: 'LOBBY' | 'SUBMIT' | 'VOTING' | 'REVEAL' | 'END';
+  host: string;
+  current_song?: Song;
+  players: string[];
+  submitted_players: Record<string, boolean>;
+  scores?: Record<string, number>;
+  votes?: Record<string, string>;
+}
+
+@Injectable({ providedIn: 'root' })
+export class GameService implements OnDestroy {
+  private ws: WebSocket | null = null;
+  public gameState$ = new BehaviorSubject<GameState | null>(null);
+  public username: string = '';
 
   connect(lobbyId: string, username: string) {
-    this.lobbyId = lobbyId;
-    this.username = username;
-
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const wsUrl = `${proto}://${window.location.host}/ws`;
-    this.socket = new WebSocket(wsUrl);
-
-    this.socket.onopen = () => {
-      this.sendMessage({ action: 'JOIN_LOBBY', lobby_id: lobbyId, username: username });
-    };
-
-    this.socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      this.gameState$.next(data as GameState);
-    };
-
-    this.socket.onclose = () => {
-      setTimeout(() => {
-        if (this.lobbyId && this.username) {
-          this.connect(this.lobbyId, this.username);
-        }
-      }, 3000);
-    };
-  }
-
-  sendMessage(msg: any) {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify(msg));
+    if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
+      console.warn('WebSocket is already connected.');
+      return;
     }
+
+    this.username = username;
+    this.ws = new WebSocket(environment.wsUrl);
+
+    this.ws.onopen = () => {
+      this.sendAction('JOIN_LOBBY', { lobby_id: lobbyId, username });
+    };
+
+    this.ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'STATE_UPDATE') {
+          this.gameState$.next(data);
+        }
+      } catch (e) {
+        console.error('Failed to parse WebSocket payload', e);
+      }
+    };
+
+    this.ws.onclose = () => {
+      console.log('WebSocket disconnected.');
+      // Future enhancement: Add automatic reconnection logic or trigger a UI warning here
+    };
+
+    this.ws.onerror = (error) => {
+      console.error('WebSocket encountered an error:', error);
+    };
   }
 
-  startSubmission() {
-    this.sendMessage({ action: 'START_SUBMISSION' });
-  }
-
-  submitSongs(songs: any[]) {
-    this.sendMessage({ action: 'SUBMIT_SONGS', songs });
-  }
-
-  startGame() {
-    this.sendMessage({ action: 'START_GAME' });
-  }
-
-  castVote(votedFor: string) {
-    this.sendMessage({ action: 'CAST_VOTE', voted_for: votedFor });
+  sendAction(action: string, payload: any = {}) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ action, ...payload }));
+    } else {
+      console.warn(`Dropped action [${action}]: WebSocket is not open.`);
+    }
   }
 
   disconnect() {
-    const s = this.socket;
-    this.lobbyId = undefined;
-    this.username = undefined;
-    this.socket = undefined;
-    if (s) {
-      s.onclose = null;
-      s.close();
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
     }
+    this.gameState$.next(null);
+  }
+
+  ngOnDestroy() {
+    this.disconnect();
   }
 }
