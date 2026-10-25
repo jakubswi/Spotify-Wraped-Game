@@ -26,7 +26,8 @@ export class GameService {
     this.lobbyId = lobbyId;
     this.username = username;
 
-    const wsUrl = `ws://${window.location.host}/ws`;
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${proto}://${window.location.host}/ws`;
     this.socket = new WebSocket(wsUrl);
 
     this.socket.onopen = () => {
@@ -67,5 +68,16 @@ export class GameService {
 
   castVote(votedFor: string) {
     this.sendMessage({ action: 'CAST_VOTE', voted_for: votedFor });
+  }
+
+  disconnect() {
+    const s = this.socket;
+    this.lobbyId = undefined;
+    this.username = undefined;
+    this.socket = undefined;
+    if (s) {
+      s.onclose = null;
+      s.close();
+    }
   }
 }
