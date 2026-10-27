@@ -1,154 +1,223 @@
-<header class="text-center">
-    <div class="container">
-        <h1>Spotify Wrapped Game</h1>
-    </div>
-</header>
-
-<div class="container pb-5">
-
-    <div *ngIf="!state" class="row justify-content-center">
-        <div class="col-md-6 kahoot-card text-center">
-            <h2 class="mb-4">Join a Lobby</h2>
-            <input [(ngModel)]="lobbyId" placeholder="Lobby Name / ID" class="form-control mb-3 text-center"/>
-            <input [(ngModel)]="username" placeholder="Your Username" class="form-control mb-4 text-center"/>
-            <button (click)="join()" class="btn btn-primary w-100 py-3 fs-5" [disabled]="!username || !lobbyId">
-                Enter Game
-            </button>
-        </div>
+<div class="app-frame">
+  <header class="site-header" [class.site-header-entry]="!state">
+    <div class="brand brand-title" aria-label="Spotify Wrapped Game">
+      <span class="brand-name">Spotify Wrapped Game</span>
     </div>
 
-    <ng-container *ngIf="state">
-        <div *ngIf="state.state === 'LOBBY'" class="kahoot-card text-center">
-            <h2 class="mb-3">Lobby: <span class="text-success">{{ gameService.lobbyId }}</span></h2>
-            <h4 class="text-secondary mb-4">Players Connected ({{ state.players.length }})</h4>
+    <div class="header-right" *ngIf="state">
+      <span class="user-chip">
+        <span class="user-avatar">{{ getInitials(gameService.username) }}</span>
+        {{ gameService.username }}
+      </span>
+    </div>
+  </header>
 
-            <div class="d-flex flex-wrap justify-content-center gap-3 mb-5">
-                <span *ngFor="let p of state.players" class="badge bg-secondary fs-5 p-3">
-                    {{ p }} <span *ngIf="p === state.host">👑</span>
-                </span>
-            </div>
+  <main class="app-main">
+    <section class="entry-screen" *ngIf="!state" aria-labelledby="entry-title">
+      <div class="entry-card">
+        <h1 id="entry-title">Join game</h1>
+        <form class="join-form" (ngSubmit)="join()">
+          <label class="field-label" for="lobby-code">Lobby number</label>
+          <input
+            id="lobby-code"
+            name="lobbyCode"
+            [(ngModel)]="lobbyId"
+            autocomplete="off"
+            autocapitalize="characters"
+            maxlength="16"
+            placeholder="Enter lobby number"
+            required />
 
-            <div *ngIf="isHost">
-                <button (click)="gameService.startSubmission()" class="btn btn-primary btn-lg">
-                    Start Submission Phase
-                </button>
-            </div>
-            <div *ngIf="!isHost">
-                <p class="fs-4 animate-pulse">Waiting for host to start...</p>
-            </div>
+          <label class="field-label" for="player-name">Username</label>
+          <input
+            id="player-name"
+            name="playerName"
+            [(ngModel)]="username"
+            autocomplete="nickname"
+            maxlength="20"
+            placeholder="Enter username"
+            required />
+
+          <button class="button button-primary join-button" type="submit" [disabled]="!username.trim() || !lobbyId.trim()">
+            Enter Game
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- Shared game shell -->
+    <section class="game-shell" *ngIf="state">
+      <div class="game-toolbar">
+        <div class="game-room-label"><span class="status-dot"></span><span>ROOM</span><strong>{{ lobbyId || 'LISTENING PARTY' }}</strong></div>
+        <div class="phase-progress" aria-label="Game progress">
+          <span [class.phase-current]="state.state === 'LOBBY'">Lobby</span>
+          <i></i>
+          <span [class.phase-current]="state.state === 'SUBMIT'">Your songs</span>
+          <i></i>
+          <span [class.phase-current]="state.state === 'VOTING'">Guess</span>
+          <i></i>
+          <span [class.phase-current]="state.state === 'REVEAL' || state.state === 'END'">Results</span>
         </div>
-
-        <div *ngIf="state.state === 'SUBMIT'" class="row">
-            <div class="col-12 text-center mb-4">
-                <h2>Submit Your Songs</h2>
-                <p class="text-secondary">Pick 5 (or more) songs that represent you!</p>
-            </div>
-
-            <div *ngIf="!hasSubmitted" class="col-md-6 mb-4">
-                <div class="d-flex gap-2 mb-4">
-                    <input [(ngModel)]="searchQuery" (keyup.enter)="searchSpotify()" placeholder="Search Spotify..." class="form-control"/>
-                    <button (click)="searchSpotify()" class="btn btn-primary">Search</button>
-                </div>
-
-                <div class="list-group">
-                    <div *ngFor="let song of searchResults" class="list-group-item d-flex align-items-center bg-transparent text-white border-secondary mb-2 rounded">
-                        <img [src]="song.img" class="song-img me-3" alt="Cover">
-                        <div class="flex-grow-1">
-                            <div class="fw-bold">{{ song.name }}</div>
-                            <div class="text-secondary small">{{ song.artist }}</div>
-                        </div>
-                        <button (click)="addSong(song)" class="btn btn-sm btn-outline-light rounded-pill px-3">Add</button>
-                    </div>
-                </div>
-            </div>
-
-            <div *ngIf="!hasSubmitted" class="col-md-6 mb-4">
-                <div class="kahoot-card">
-                    <h4 class="mb-3 text-center">Your Selection ({{ selectedSongs.length }})</h4>
-                    <div class="list-group mb-4">
-                        <div *ngFor="let song of selectedSongs" class="list-group-item d-flex align-items-center bg-transparent text-white border-0 mb-1">
-                            <img [src]="song.img" class="song-img me-3" alt="Cover">
-                            <div class="flex-grow-1">
-                                <div class="fw-bold">{{ song.name }}</div>
-                            </div>
-                            <button (click)="removeSong(song)" class="btn btn-sm btn-danger rounded-pill px-3">Remove</button>
-                        </div>
-                    </div>
-                    <button (click)="submitMySongs()" class="btn btn-primary w-100">Ready & Submit</button>
-                </div>
-            </div>
-
-            <div *ngIf="hasSubmitted" class="col-12 text-center kahoot-card">
-                <h3 class="text-success mb-3">Songs Submitted!</h3>
-                <p class="fs-5 mb-4">Waiting for other players to finish...</p>
-
-                <button *ngIf="isHost" (click)="gameService.startGame()" class="btn btn-primary btn-lg mt-3">
-                    Start Guessing Game!
-                </button>
-            </div>
-        </div>
-
-      <div *ngIf="state.state === 'VOTING'" class="text-center">
-
-        <div *ngIf="isHost" class="mb-4">
-          <iframe [src]="getSpotifyEmbedUrl(state.current_song?.id)"
-                  width="300" height="80" frameborder="0" allowtransparency="true" allow="encrypted-media">
-          </iframe>
-          <p class="text-warning small mt-2">Only you (the host) can see and play this!</p>
-        </div>
-
-        <div class="kahoot-card d-inline-block px-5 py-4 mb-5">
-          <h1 class="display-4 text-success fw-bold">{{ state.current_song?.name }}</h1>
-        </div>
-
-        <ng-container *ngIf="state.current_song?.owner_id !== gameService.username">
-          <h3>Who submitted this song?</h3>
-
-          <div *ngIf="!hasVoted" class="row justify-content-center g-3 mt-4">
-            <div class="col-6 col-md-4 col-lg-3" *ngFor="let p of state.players">
-              <button (click)="voteForPlayer(p)"
-                      class="btn w-100 voting-btn btn-primary"
-                      [disabled]="p === gameService.username">
-                {{ p }}
-              </button>
-            </div>
-          </div>
-
-          <div *ngIf="hasVoted">
-            <h3 class="text-secondary mt-4">Vote cast! Waiting for others...</h3>
-          </div>
-        </ng-container>
-        <ng-container *ngIf="state.current_song?.owner_id === gameService.username">
-          <h3>This is your song!</h3>
-          <p class="text-secondary mt-3">Sit tight and wait for the others to cast their votes.</p>
-        </ng-container>
-
       </div>
 
-        <div *ngIf="state.state === 'REVEAL'" class="text-center kahoot-card py-5">
-            <h2 class="mb-4">And the song belongs to...</h2>
-            <h1 class="display-2 text-success fw-bold mb-5">{{ state.current_song?.owner_id }}!</h1>
-
-            <div *ngIf="isHost">
-                <button (click)="gameService.startGame()" class="btn btn-primary btn-lg px-5">
-                    Next Song
-                </button>
+      <!-- Waiting room -->
+      <section class="game-stage lobby-stage" *ngIf="state.state === 'LOBBY'">
+        <div class="stage-heading">
+          <p class="eyebrow eyebrow-muted">LOBBY</p>
+          <h1>Waiting room<span>.</span></h1>
+          <p>The host will start the song picks when everyone is ready.</p>
+        </div>
+        <div class="lobby-grid">
+          <section class="surface-panel players-panel">
+            <div class="panel-heading">
+              <div><h2>In the room</h2><p>{{ state.players.length }} {{ state.players.length === 1 ? 'player' : 'players' }} connected</p></div>
+              <span class="small-tag">WAITING</span>
             </div>
+            <div class="players-grid">
+              <div class="player-card" *ngFor="let player of state.players; let i = index" [class.player-card-host]="player === state.host">
+                <span class="player-avatar" [ngClass]="avatarTone(i)">{{ getInitials(player) }}</span>
+                <span class="player-card-copy"><strong>{{ player }}</strong><small>{{ player === state.host ? 'HOST · IN CONTROL' : 'READY TO PLAY' }}</small></span>
+                <span class="host-crown" *ngIf="player === state.host" aria-label="Host">✦</span>
+                <span class="ready-check" *ngIf="player !== state.host" aria-hidden="true">✓</span>
+              </div>
+            </div>
+          </section>
+
+          <aside class="surface-panel waiting-panel">
+            <div class="waiting-icon" aria-hidden="true"><span></span><span></span><span></span></div>
+            <p class="eyebrow eyebrow-muted">UP NEXT</p>
+            <h2>Pick five songs.</h2>
+            <p>First, everyone picks five songs. After that, the guessing begins.</p>
+            <div class="mini-step-list"><span class="mini-step-active">01 <b>Song picks</b></span><span>02 <b>Mystery tracks</b></span><span>03 <b>Final scores</b></span></div>
+            <button *ngIf="isHost" type="button" class="button button-primary button-wide" (click)="startSubmission()">Start song picks <span>↗</span></button>
+            <div *ngIf="!isHost" class="waiting-message"><span class="pulse-dot"></span> Waiting for {{ state.host }} to start…</div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- Song submission -->
+      <section class="game-stage submit-stage" *ngIf="state.state === 'SUBMIT'">
+        <div class="stage-heading stage-heading-row">
+          <div><p class="eyebrow eyebrow-muted">ROUND 01 <span class="eyebrow-separator">/</span> YOUR SOUNDTRACK</p><h1>Pick your five<span>.</span></h1><p>Choose five songs. Keep your picks secret until the reveal.</p></div>
+          <div class="selection-counter"><strong>{{ selectedSongs.length }}<span>/5</span></strong><small>TRACKS PICKED</small></div>
         </div>
 
-        <div *ngIf="state.state === 'END'" class="text-center row justify-content-center">
-            <div class="col-md-8 kahoot-card">
-                <h1 class="display-4 mb-5 text-success fw-bold">Final Scores</h1>
-
-                <div class="list-group fs-4">
-                    <div *ngFor="let p of state.players; let i = index"
-                         class="list-group-item bg-transparent text-white border-secondary d-flex justify-content-between py-3 mb-2 rounded">
-                        <span><strong>#{{ i + 1 }}</strong> {{ p }}</span>
-                        <span class="text-success fw-bold">{{ state.scores?.[p] || 0 }} pts</span>
-                    </div>
-                </div>
+        <div *ngIf="!hasSubmitted" class="submit-grid">
+          <section class="surface-panel search-panel">
+            <div class="panel-heading"><div><h2>Find a track</h2><p>Search Spotify to build your five.</p></div><span class="panel-icon" aria-hidden="true">⌕</span></div>
+            <form class="track-search" (ngSubmit)="searchSpotify()">
+              <span class="search-symbol" aria-hidden="true">⌕</span>
+              <input name="searchQuery" [(ngModel)]="searchQuery" placeholder="Song, artist or album" autocomplete="off" />
+              <button type="submit" class="button button-dark" [disabled]="!searchQuery.trim() || isSearching">{{ isSearching ? 'Searching…' : 'Search' }}</button>
+            </form>
+            <p class="search-error" *ngIf="searchError">{{ searchError }}</p>
+            <div class="track-results" *ngIf="searchResults.length > 0; else emptySearch">
+              <div class="track-row" *ngFor="let song of searchResults">
+                <img *ngIf="song.img; else resultPlaceholder" [src]="song.img" [alt]="song.name + ' album cover'" class="track-art" />
+                <ng-template #resultPlaceholder><span class="track-art track-art-placeholder">♪</span></ng-template>
+                <span class="track-copy"><strong>{{ song.name }}</strong><small>{{ song.artist }}</small></span>
+                <button type="button" class="add-track-button" [class.track-added]="hasSong(song)" [disabled]="hasSong(song) || selectedSongs.length >= 5" (click)="addSong(song)">{{ hasSong(song) ? 'Added' : selectedSongs.length >= 5 ? 'Full' : '+ Add' }}</button>
+              </div>
             </div>
+            <ng-template #emptySearch>
+              <div class="empty-search"><span class="empty-search-icon">♫</span><strong>Your next favourite might be here.</strong><p>Search a song or artist to get started.</p></div>
+            </ng-template>
+          </section>
+
+          <section class="surface-panel selection-panel">
+            <div class="panel-heading"><div><h2>Your selection</h2><p>Five tracks. No skips.</p></div><span class="selection-badge">{{ selectedSongs.length }} / 5</span></div>
+            <div class="selection-slots">
+              <div class="selection-slot" *ngFor="let slot of [1, 2, 3, 4, 5]; let i = index" [class.slot-filled]="selectedSongs.length > i">
+                <span class="slot-number">{{ i + 1 }}</span>
+                <span class="slot-copy"><strong>{{ selectedSongs[i]?.name || 'A song goes here' }}</strong><small>{{ selectedSongs[i]?.artist || 'Waiting for your pick' }}</small></span>
+                <button *ngIf="selectedSongs[i]" type="button" class="remove-track-button" (click)="removeSong(selectedSongs[i])" [attr.aria-label]="'Remove ' + selectedSongs[i].name">×</button>
+                <span *ngIf="!selectedSongs[i]" class="slot-plus">+</span>
+              </div>
+            </div>
+            <div class="selection-footer"><span>Choose exactly five songs to continue.</span><button type="button" class="button button-primary button-wide" [disabled]="selectedSongs.length !== 5" (click)="submitMySongs()">Lock in my songs <span>↗</span></button></div>
+          </section>
         </div>
 
-    </ng-container>
+        <section *ngIf="hasSubmitted" class="surface-panel submitted-panel">
+          <div class="submitted-icon" aria-hidden="true">✓</div>
+          <p class="eyebrow eyebrow-muted">YOUR PICKS ARE LOCKED</p>
+          <h2>Secret's safe. <em>For now.</em></h2>
+          <p>Your five songs are in. Hang tight while the rest of the room finishes choosing theirs.</p>
+          <div class="submission-progress"><div class="submission-progress-track"><span [style.width.%]="state.players.length ? submissionsReadyCount / state.players.length * 100 : 0"></span></div><small>{{ submissionsReadyCount }} of {{ state.players.length }} players ready</small></div>
+          <button *ngIf="isHost" type="button" class="button button-primary" [disabled]="!everyoneSubmitted" (click)="startGame()">Start the guessing game <span>↗</span></button>
+          <p *ngIf="isHost && !everyoneSubmitted" class="host-hint">You can start once everyone has submitted their five.</p>
+          <p *ngIf="!isHost" class="waiting-message"><span class="pulse-dot"></span> Waiting for the host to start…</p>
+        </section>
+      </section>
+
+      <!-- Guessing round -->
+      <section class="game-stage voting-stage" *ngIf="state.state === 'VOTING'">
+        <div class="stage-heading"><p class="eyebrow eyebrow-muted">THE MYSTERY ROUND</p><h1>Who picked this<span>?</span></h1><p>Listen to the track, then choose who submitted it.</p></div>
+        <div class="listening-card">
+          <div class="mystery-record" aria-hidden="true"><div class="mystery-record-rings"></div><div class="mystery-record-label">B<span>.</span></div></div>
+          <div class="listening-copy" *ngIf="isHost">
+            <span class="small-tag">YOU’RE THE DJ</span><h2>Play the mystery track.</h2><p>Only you control the music this round. Keep the title to yourself.</p>
+            <iframe *ngIf="state.current_song?.id" [src]="getSpotifyEmbedUrl(state.current_song?.id)" title="Spotify mystery track player" width="100%" height="80" frameborder="0" allowtransparency="true" allow="encrypted-media"></iframe>
+          </div>
+          <div class="listening-copy" *ngIf="!isHost"><span class="small-tag">LISTENING NOW</span><h2>Let the music tell you.</h2><p>The host is playing a track from someone in the room. Who do you think picked it?</p></div>
+          <div class="equalizer" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        </div>
+
+        <div *ngIf="state.current_song?.owner_id !== gameService.username" class="voting-section">
+          <div class="voting-heading"><div><h2>Who submitted this song?</h2><p>Pick one person. No changing your mind.</p></div><span class="small-tag">YOUR VOTE</span></div>
+          <div class="vote-grid" *ngIf="!hasVoted">
+            <button class="vote-player" type="button" *ngFor="let player of state.players; let i = index" (click)="voteForPlayer(player)" [disabled]="player === gameService.username">
+              <span class="player-avatar" [ngClass]="avatarTone(i)">{{ getInitials(player) }}</span>
+              <span class="vote-player-name">{{ player }}</span>
+              <span class="vote-arrow">↗</span>
+            </button>
+          </div>
+          <div *ngIf="hasVoted" class="vote-locked surface-panel"><span class="vote-locked-icon">✓</span><div><strong>Vote locked in.</strong><p>Now we wait. The reveal is coming.</p></div><span class="pulse-dot"></span></div>
+        </div>
+        <div *ngIf="state.current_song?.owner_id === gameService.username" class="owner-wait surface-panel"><span class="owner-wait-icon">♫</span><div><strong>They’re guessing your song.</strong><p>Keep a straight face. Your reveal is up next.</p></div></div>
+      </section>
+
+      <!-- Reveal -->
+      <section class="game-stage reveal-stage" *ngIf="state.state === 'REVEAL'">
+        <div class="reveal-confetti" aria-hidden="true"><span>✳</span><span>✦</span><span>♪</span></div>
+        <div class="reveal-content">
+          <p class="eyebrow eyebrow-muted">THE REVEAL</p>
+          <div class="reveal-record" aria-hidden="true"></div>
+          <h1>It was <em>{{ state.current_song?.owner_id }}</em><span>.</span></h1>
+          <p class="reveal-song" *ngIf="state.current_song?.name">“{{ state.current_song?.name }}”<span *ngIf="state.current_song?.artist"> · {{ state.current_song?.artist }}</span></p>
+          <p class="reveal-description">The room has made its calls. Here’s how everyone read the clues.</p>
+        </div>
+        <section class="surface-panel vote-recap" *ngIf="state.votes && (state.votes | keyvalue).length > 0">
+          <div class="panel-heading"><div><h2>The room’s guesses</h2><p>Every vote, out in the open.</p></div><span class="small-tag">RECEIPTS</span></div>
+          <div class="vote-recap-row" *ngFor="let vote of state.votes | keyvalue">
+            <span class="recap-voter">{{ vote.key }}</span><span class="recap-guessed">guessed</span><strong>{{ vote.value }}</strong>
+            <span class="correct-label" *ngIf="vote.value === state.current_song?.owner_id">Correct</span>
+            <span class="incorrect-label" *ngIf="vote.value !== state.current_song?.owner_id">Missed</span>
+          </div>
+        </section>
+        <button *ngIf="isHost" type="button" class="button button-primary reveal-next" (click)="startGame()">Next track <span>↗</span></button>
+        <p *ngIf="!isHost" class="waiting-message reveal-wait"><span class="pulse-dot"></span> Waiting for the host to cue the next track…</p>
+      </section>
+
+      <!-- Final scoreboard -->
+      <section class="game-stage end-stage" *ngIf="state.state === 'END'">
+        <div class="scoreboard-heading">
+          <div class="scoreboard-symbol" aria-hidden="true">✦</div>
+          <p class="eyebrow eyebrow-muted">THAT’S A WRAP</p>
+          <h1>That’s a wrap<span>.</span></h1>
+          <p>The playlist is over. The receipts are in. Here’s who knows their friends best.</p>
+        </div>
+        <section class="surface-panel scoreboard-panel">
+          <div class="panel-heading"><div><h2>Final scoreboard</h2><p>{{ rankedPlayers.length }} players <span class="room-info-separator">·</span> ranked by correct guesses</p></div><span class="small-tag">FINAL SCORES</span></div>
+          <div class="score-row" *ngFor="let player of rankedPlayers; let i = index" [class.score-row-winner]="i === 0">
+            <span class="score-rank" [class.score-rank-winner]="i === 0">{{ i === 0 ? '✦' : ('0' + (i + 1)) }}</span>
+            <span class="player-avatar" [ngClass]="avatarTone(i)">{{ getInitials(player) }}</span>
+            <span class="score-player"><strong>{{ player }}</strong><small>{{ i === 0 ? 'THE TASTE MAKER' : (player === state.host ? 'HOST' : 'PLAYER') }}</small></span>
+            <span class="score-points"><strong>{{ state.scores?.[player] || 0 }}</strong><small>PTS</small></span>
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+
 </div>

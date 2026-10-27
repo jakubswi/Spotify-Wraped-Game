@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { GameService, GameState } from '../services/game.service';
@@ -23,8 +23,9 @@ export class GameComponent implements OnInit, OnDestroy {
   searchResults: any[] = [];
   selectedSongs: any[] = [];
   hasSubmitted = false;
-
   hasVoted = false;
+  isSearching = false;
+  searchError = '';
 
   constructor(
     public gameService: GameService,
@@ -33,28 +34,34 @@ export class GameComponent implements OnInit, OnDestroy {
   ) {}
 
   getSpotifyEmbedUrl(trackId: string | undefined): SafeResourceUrl | string {
-      if (!trackId) return '';
-      const url = `https://open.spotify.com/embed/track/${trackId}?utm_source=generator`;
-      return this.sanitizer.bypassSecurityTrustResourceUrl(url);
-    }
+    if (!trackId) return '';
+    const url = `https://open.spotify.com/embed/track/${trackId}?utm_source=generator`;
+    return this.sanitizer.bypassSecurityTrustResourceUrl(url);
+  }
 
-  ngOnInit() {
-      this.stateSub = this.gameService.gameState$.subscribe(newState => {
-        if (!newState) {
-          this.state = null;
-          return;
+  ngOnInit(): void {
+    this.stateSub = this.gameService.gameState$.subscribe(newState => {
+      if (!newState) {
+        this.state = null;
+        return;
+      }
+
+      if (this.state?.state !== newState.state) {
+        if (newState.state === 'SUBMIT') {
+          this.hasSubmitted = false;
+          this.hasVoted = false;
+          this.selectedSongs = [];
+          this.searchResults = [];
+          this.searchQuery = '';
         }
+        if (newState.state === 'VOTING') this.hasVoted = false;
+      }
 
-        if (this.state?.state !== newState.state) {
-          if (newState.state === 'SUBMIT') this.hasSubmitted = false;
-          if (newState.state === 'VOTING') this.hasVoted = false;
-        }
+      this.state = newState;
+    });
+  }
 
-        this.state = newState;
-      });
-    }
-
-  ngOnDestroy() {
+  ngOnDestroy(): void {
     if (this.stateSub) this.stateSub.unsubscribe();
   }
 
@@ -62,37 +69,91 @@ export class GameComponent implements OnInit, OnDestroy {
     return this.state?.host === this.gameService.username;
   }
 
-  join() {
-    if (this.username && this.lobbyId) {
-      this.gameService.connect(this.lobbyId, this.username);
-    }
+  get submissionsReadyCount(): number {
+    return Object.values(this.state?.submitted_players ?? {}).filter(Boolean).length;
   }
 
-  searchSpotify() {
-    if (!this.searchQuery) return;
-    this.spotifyService.searchTracks(this.searchQuery).subscribe(results => {
-      this.searchResults = results;
+  get everyoneSubmitted(): boolean {
+    const players = this.state?.players ?? [];
+    return players.length > 0 && players.every(player => this.state?.submitted_players?.[player] === true);
+  }
+
+  get rankedPlayers(): string[] {
+    const players = [...(this.state?.players ?? [])];
+    const scores = this.state?.scores ?? {};
+    return players.sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0));
+  }
+
+  getInitials(name: string): string {
+    const words = name.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return '?';
+    return words.slice(0, 2).map(word => word.charAt(0).toUpperCase()).join('');
+  }
+
+  avatarTone(index: number): string {
+    return `avatar-tone-${index % 5 + 1}`;
+  }
+
+  join(): void {
+    const cleanUsername = this.username.trim();
+    const cleanLobbyId = this.lobbyId.trim().toUpperCase();
+    if (!cleanUsername || !cleanLobbyId) return;
+
+    this.username = cleanUsername;
+    this.lobbyId = cleanLobbyId;
+    this.gameService.connect(cleanLobbyId, cleanUsername);
+  }
+
+  searchSpotify(): void {
+    const query = this.searchQuery.trim();
+    if (!query || this.isSearching) return;
+
+    this.isSearching = true;
+    this.searchError = '';
+    this.spotifyService.searchTracks(query).subscribe({
+      next: results => {
+        this.searchResults = results;
+        this.isSearching = false;
+        if (results.length === 0) this.searchError = 'No tracks found. Try another song or artist.';
+      },
+      error: () => {
+        this.searchResults = [];
+        this.isSearching = false;
+        this.searchError = 'Spotify search is unavailable right now. Please try again.';
+      }
     });
   }
 
-  addSong(song: any) {
-    if (!this.selectedSongs.find(s => s.uri === song.uri)) {
-      this.selectedSongs.push(song);
-    }
+  hasSong(song: any): boolean {
+    return this.selectedSongs.some(selected => selected.uri === song.uri);
   }
 
-  removeSong(song: any) {
-    this.selectedSongs = this.selectedSongs.filter(s => s.uri !== song.uri);
+  addSong(song: any): void {
+    if (this.selectedSongs.length >= 5 || this.hasSong(song)) return;
+    this.selectedSongs = [...this.selectedSongs, song];
   }
 
-  submitMySongs() {
-    this.gameService.submitSongs(this.selectedSongs);
+  removeSong(song: any): void {
+    this.selectedSongs = this.selectedSongs.filter(selected => selected.uri !== song.uri);
+  }
+
+  submitMySongs(): void {
+    if (this.selectedSongs.length !== 5) return;
+    this.gameService.sendAction('SUBMIT_SONGS', { songs: this.selectedSongs });
     this.hasSubmitted = true;
   }
 
-  voteForPlayer(player: string) {
+  startSubmission(): void {
+    this.gameService.sendAction('START_SUBMISSION');
+  }
+
+  startGame(): void {
+    this.gameService.sendAction('START_GAME');
+  }
+
+  voteForPlayer(player: string): void {
     if (this.hasVoted || player === this.gameService.username) return;
-    this.gameService.castVote(player);
+    this.gameService.sendAction('CAST_VOTE', { player });
     this.hasVoted = true;
   }
 }
