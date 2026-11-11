@@ -1,6 +1,5 @@
 import { Injectable, OnDestroy } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
-import { environment } from '../../environments/environment';
 
 export interface Song {
   id: string;
@@ -24,20 +23,36 @@ export interface GameState {
 @Injectable({ providedIn: 'root' })
 export class GameService implements OnDestroy {
   private ws: WebSocket | null = null;
+
   public gameState$ = new BehaviorSubject<GameState | null>(null);
-  public username: string = '';
+  public username = '';
+
+  private getWebSocketUrl(): string {
+    const protocol =
+      window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+    return `${protocol}//${window.location.host}/ws`;
+  }
 
   connect(lobbyId: string, username: string) {
-    if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
+    if (
+      this.ws &&
+      (this.ws.readyState === WebSocket.CONNECTING ||
+        this.ws.readyState === WebSocket.OPEN)
+    ) {
       console.warn('WebSocket is already connected.');
       return;
     }
 
     this.username = username;
-    this.ws = new WebSocket(environment.wsUrl);
+
+    this.ws = new WebSocket(this.getWebSocketUrl());
 
     this.ws.onopen = () => {
-      this.sendAction('JOIN_LOBBY', { lobby_id: lobbyId, username });
+      this.sendAction('JOIN_LOBBY', {
+        lobby_id: lobbyId,
+        username
+      });
     };
 
     this.ws.onmessage = (event) => {
@@ -53,7 +68,6 @@ export class GameService implements OnDestroy {
 
     this.ws.onclose = () => {
       console.log('WebSocket disconnected.');
-      // Future enhancement: Add automatic reconnection logic or trigger a UI warning here
     };
 
     this.ws.onerror = (error) => {
