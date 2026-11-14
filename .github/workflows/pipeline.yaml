@@ -145,7 +145,7 @@ jobs:
 
       - name: Install Cosign
         if: env.IS_MASTER_PUSH == 'true'
-        uses: sigstore/cosign-installer@v3.7.0
+        uses: sigstore/cosign-installer@v4.1.3
 
       - name: Sign Container Image (Keyless OIDC)
         if: env.IS_MASTER_PUSH == 'true'
