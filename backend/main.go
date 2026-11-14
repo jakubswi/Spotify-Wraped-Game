@@ -71,6 +71,13 @@ var spotifyAppToken string
 var tokenExpiry time.Time
 var tokenMutex sync.RWMutex
 
+func getStringField(m map[string]interface{}, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
 func getSecret(name string, envFallback string) string {
 	data, err := os.ReadFile(fmt.Sprintf("/run/secrets/%s", name))
 	if err == nil {
@@ -204,6 +211,12 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+	ws.SetPongHandler(func(string) error {
+		ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
 	var userID string
 	var currentLobby *Lobby
 
@@ -244,8 +257,8 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 
 		switch action {
 		case "JOIN_LOBBY":
-			lobbyID, _ := msg["lobby_id"].(string)
-			userIDReq, _ := msg["username"].(string)
+			lobbyID := strings.TrimSpace(strings.ToUpper(getStringField(msg, "lobby_id")))
+			userIDReq := strings.TrimSpace(getStringField(msg, "username"))
 			if lobbyID == "" || userIDReq == "" {
 				continue
 			}
@@ -293,15 +306,22 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 			var userSongs []Song
 			for _, s := range songsData {
 				songMap, ok := s.(map[string]interface{})
-				if !ok { continue }
-				uri, _ := songMap["uri"].(string)
+				if !ok {
+					continue
+				}
+				uri := getStringField(songMap, "uri")
 				parts := strings.Split(uri, ":")
 				trackID := ""
-				if len(parts) == 3 { trackID = parts[2] }
+				if len(parts) == 3 {
+					trackID = parts[2]
+				}
 
 				userSongs = append(userSongs, Song{
-					ID: trackID, URI: uri, Name: songMap["name"].(string),
-					Artist: songMap["artist"].(string), Img: songMap["img"].(string),
+					ID:      trackID,
+					URI:     uri,
+					Name:    getStringField(songMap, "name"),
+					Artist:  getStringField(songMap, "artist"),
+					Img:     getStringField(songMap, "img"),
 					OwnerID: userID,
 				})
 			}
@@ -322,9 +342,14 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 				if currentLobby.State == StateSubmit {
 					currentLobby.AllSongs = []Song{}
 					for _, u := range currentLobby.Users {
-						if u.HasSubmitted {
+						if u.HasSubmitted && len(u.Songs) > 0 {
 							currentLobby.AllSongs = append(currentLobby.AllSongs, u.Songs...)
 						}
+					}
+					if len(currentLobby.AllSongs) == 0 {
+						slog.Warn("START_GAME ignored: no songs submitted yet", "lobby_id", currentLobby.ID)
+						currentLobby.Mutex.Unlock()
+						continue
 					}
 					rand.Shuffle(len(currentLobby.AllSongs), func(i, j int) {
 						currentLobby.AllSongs[i], currentLobby.AllSongs[j] = currentLobby.AllSongs[j], currentLobby.AllSongs[i]
@@ -339,23 +364,45 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 			}
 
 		case "CAST_VOTE":
-            votedFor, _ := msg["voted_for"].(string)
-            currentLobby.Mutex.Lock()
-            if currentLobby.State == StateVoting {
-                if currentLobby.CurrentSong != nil && currentLobby.CurrentSong.OwnerID != userID {
-                    currentLobby.Votes[userID] = votedFor
-                }
-            }
-            currentLobby.Mutex.Unlock()
-            broadcastLobbyState(currentLobby)
+			if currentLobby == nil {
+				continue
+			}
+			votedFor := getStringField(msg, "voted_for")
+			currentLobby.Mutex.Lock()
+			if currentLobby.State == StateVoting {
+				if currentLobby.CurrentSong != nil && currentLobby.CurrentSong.OwnerID != userID {
+					currentLobby.Votes[userID] = votedFor
+				}
+			}
+			currentLobby.Mutex.Unlock()
+			broadcastLobbyState(currentLobby)
+
+		default:
+			slog.Warn("Unknown WebSocket action received", "action", action, "user_id", userID)
 		}
 	}
 }
 
 func writePump(ws *websocket.Conn, send chan interface{}) {
-	for msg := range send {
-		if err := ws.WriteJSON(msg); err != nil {
-			break
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case msg, ok := <-send:
+			ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if !ok {
+				ws.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := ws.WriteJSON(msg); err != nil {
+				return
+			}
+		case <-ticker.C:
+			ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := ws.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -434,22 +481,22 @@ func broadcastLobbyState(lobby *Lobby) {
 	}
 
 	for _, user := range lobby.Users {
-        userMsg := make(map[string]interface{})
-        for k, v := range stateMsg {
-            userMsg[k] = v
-        }
-        if lobby.State == StateVoting && lobby.CurrentSong != nil {
-            songCopy := *lobby.CurrentSong
-            if user.ID != lobby.CurrentSong.OwnerID {
-                songCopy.OwnerID = ""
-            }
-            userMsg["current_song"] = songCopy
-        }
+		userMsg := make(map[string]interface{})
+		for k, v := range stateMsg {
+			userMsg[k] = v
+		}
+		if lobby.State == StateVoting && lobby.CurrentSong != nil {
+			songCopy := *lobby.CurrentSong
+			if user.ID != lobby.CurrentSong.OwnerID {
+				songCopy.OwnerID = ""
+			}
+			userMsg["current_song"] = songCopy
+		}
 
-        select {
-        case user.Send <- userMsg:
-        default:
-            slog.Warn("User send channel full, dropping message", "user_id", user.ID)
-        }
-    }
+		select {
+		case user.Send <- userMsg:
+		default:
+			slog.Warn("User send channel full, dropping message", "user_id", user.ID)
+		}
+	}
 }

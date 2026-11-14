@@ -35,23 +35,22 @@ export class GameService implements OnDestroy {
   }
 
   connect(lobbyId: string, username: string) {
-    if (
-      this.ws &&
-      (this.ws.readyState === WebSocket.CONNECTING ||
-        this.ws.readyState === WebSocket.OPEN)
-    ) {
-      console.warn('WebSocket is already connected.');
-      return;
+    const cleanLobbyId = lobbyId.trim().toUpperCase();
+    const cleanUsername = username.trim();
+
+    if (!cleanLobbyId || !cleanUsername) return;
+
+    if (this.ws) {
+      this.disconnect();
     }
 
-    this.username = username;
-
+    this.username = cleanUsername;
     this.ws = new WebSocket(this.getWebSocketUrl());
 
     this.ws.onopen = () => {
       this.sendAction('JOIN_LOBBY', {
-        lobby_id: lobbyId,
-        username
+        lobby_id: cleanLobbyId,
+        username: cleanUsername
       });
     };
 
@@ -67,7 +66,8 @@ export class GameService implements OnDestroy {
     };
 
     this.ws.onclose = () => {
-      console.log('WebSocket disconnected.');
+      console.warn('WebSocket disconnected.');
+      this.ws = null;
     };
 
     this.ws.onerror = (error) => {
