@@ -41,6 +41,7 @@ type User struct {
 	Score        int
 	Songs        []Song
 	HasSubmitted bool
+	Connected    bool
 }
 
 type Song struct {
@@ -66,6 +67,7 @@ type Lobby struct {
 	CurrentSong        *Song
 	Votes              map[string]string
 	Round              int
+	CleanupTimer       *time.Timer
 	Mutex              sync.Mutex
 }
 
@@ -654,25 +656,66 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	var currentLobby *Lobby
 
 	defer func() {
-		if currentLobby != nil && userID != "" {
-			currentLobby.Mutex.Lock()
-			if user, exists := currentLobby.Users[userID]; exists && user.Conn == ws {
-				close(user.Send)
-				delete(currentLobby.Users, userID)
-			}
-			isEmpty := len(currentLobby.Users) == 0
-			currentLobby.Mutex.Unlock()
+    		if currentLobby != nil && userID != "" {
+    			currentLobby.Mutex.Lock()
+    			if user, exists := currentLobby.Users[userID]; exists && user.Conn == ws {
+    				if user.Connected && user.Send != nil {
+    					close(user.Send)
+    				}
+    				user.Send = nil
+    				user.Conn = nil
+    				user.Connected = false
 
-			if isEmpty {
-				lobbiesMutex.Lock()
-				delete(lobbies, currentLobby.ID)
-				lobbiesMutex.Unlock()
-			} else {
-				broadcastLobbyState(currentLobby)
-			}
-		}
-		ws.Close()
-	}()
+    				if currentLobby.State == StateLobby {
+    					delete(currentLobby.Users, userID)
+    				}
+    			}
+
+    			connectedCount := 0
+    			for _, u := range currentLobby.Users {
+    				if u.Connected {
+    					connectedCount++
+    				}
+    			}
+
+    			if connectedCount == 0 {
+    				if currentLobby.State == StateLobby {
+    					currentLobby.Mutex.Unlock()
+    					lobbiesMutex.Lock()
+    					delete(lobbies, currentLobby.ID)
+    					lobbiesMutex.Unlock()
+    				} else {
+    					lobbyToClean := currentLobby
+    					if lobbyToClean.CleanupTimer != nil {
+    						lobbyToClean.CleanupTimer.Stop()
+    					}
+    					lobbyToClean.CleanupTimer = time.AfterFunc(2*time.Minute, func() {
+    						lobbyToClean.Mutex.Lock()
+    						stillEmpty := true
+    						for _, u := range lobbyToClean.Users {
+    							if u.Connected {
+    								stillEmpty = false
+    								break
+    							}
+    						}
+    						lobbyToClean.Mutex.Unlock()
+
+    						if stillEmpty {
+    							lobbiesMutex.Lock()
+    							delete(lobbies, lobbyToClean.ID)
+    							lobbiesMutex.Unlock()
+    							slog.Info("Cleaned up abandoned active lobby", "lobby_id", lobbyToClean.ID)
+    						}
+    					})
+    					currentLobby.Mutex.Unlock()
+    				}
+    			} else {
+    				currentLobby.Mutex.Unlock()
+    				broadcastLobbyState(currentLobby)
+    			}
+    		}
+    		ws.Close()
+    	}()
 
 	for {
 		var msg map[string]interface{}
@@ -687,41 +730,59 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 
 		switch action {
 		case "JOIN_LOBBY":
-			lobbyID := strings.ToUpper(getStringField(msg, "lobby_id"))
-			userIDReq := getStringField(msg, "username")
-			if lobbyID == "" || userIDReq == "" {
-				continue
-			}
+            lobbyID := strings.ToUpper(getStringField(msg, "lobby_id"))
+            userIDReq := getStringField(msg, "username")
+            if lobbyID == "" || userIDReq == "" {
+                continue
+            }
 
-			userID = userIDReq
+            userID = userIDReq
 
-			lobbiesMutex.Lock()
-			if _, exists := lobbies[lobbyID]; !exists {
-				lobbies[lobbyID] = &Lobby{
-					ID:                 lobbyID,
-					HostID:             userID,
-					HostSpotifySession: spotifySessionID,
-					Users:              make(map[string]*User),
-					State:              StateLobby,
-					Votes:              make(map[string]string),
-				}
-			}
-			currentLobby = lobbies[lobbyID]
-			lobbiesMutex.Unlock()
+            lobbiesMutex.Lock()
+            if _, exists := lobbies[lobbyID]; !exists {
+                lobbies[lobbyID] = &Lobby{
+                    ID:                 lobbyID,
+                    HostID:             userID,
+                    HostSpotifySession: spotifySessionID,
+                    Users:              make(map[string]*User),
+                    State:              StateLobby,
+                    Votes:              make(map[string]string),
+                }
+            }
+            currentLobby = lobbies[lobbyID]
+            lobbiesMutex.Unlock()
 
-			currentLobby.Mutex.Lock()
-			if userID == currentLobby.HostID && spotifySessionID != "" {
-				currentLobby.HostSpotifySession = spotifySessionID
-			}
-			if existingUser, exists := currentLobby.Users[userID]; exists {
-				close(existingUser.Send)
-			}
-			newUser := &User{ID: userID, Conn: ws, Send: make(chan interface{}, 256), Score: 0}
-			currentLobby.Users[userID] = newUser
-			go writePump(ws, newUser.Send)
-			currentLobby.Mutex.Unlock()
+            currentLobby.Mutex.Lock()
+            if currentLobby.CleanupTimer != nil {
+                currentLobby.CleanupTimer.Stop()
+                currentLobby.CleanupTimer = nil
+            }
+            if userID == currentLobby.HostID && spotifySessionID != "" {
+                currentLobby.HostSpotifySession = spotifySessionID
+            }
 
-			broadcastLobbyState(currentLobby)
+            if existingUser, exists := currentLobby.Users[userID]; exists {
+                if existingUser.Connected && existingUser.Send != nil {
+                    close(existingUser.Send)
+                }
+                existingUser.Conn = ws
+                existingUser.Send = make(chan interface{}, 256)
+                existingUser.Connected = true
+                go writePump(ws, existingUser.Send)
+            } else {
+                newUser := &User{
+                    ID:        userID,
+                    Conn:      ws,
+                    Send:      make(chan interface{}, 256),
+                    Score:     0,
+                    Connected: true,
+                }
+                currentLobby.Users[userID] = newUser
+                go writePump(ws, newUser.Send)
+            }
+            currentLobby.Mutex.Unlock()
+
+            broadcastLobbyState(currentLobby)
 
 		case "START_SUBMISSION":
 			if currentLobby != nil && userID == currentLobby.HostID {
@@ -928,12 +989,14 @@ func broadcastLobbyState(lobby *Lobby) {
 	defer lobby.Mutex.Unlock()
 
 	players := []string{}
+	connectedPlayers := make(map[string]bool)
 	submittedPlayers := make(map[string]bool)
 	votedPlayers := make(map[string]bool)
 	scores := make(map[string]int)
 
 	for id, u := range lobby.Users {
 		players = append(players, id)
+		connectedPlayers[id] = u.Connected
 		submittedPlayers[id] = u.HasSubmitted
 		_, hasVoted := lobby.Votes[id]
 		votedPlayers[id] = hasVoted
@@ -950,16 +1013,21 @@ func broadcastLobbyState(lobby *Lobby) {
 		"playback_error":         lobby.PlaybackError,
 		"current_song":           lobby.CurrentSong,
 		"players":                players,
+		"connected_players":      connectedPlayers,
 		"submitted_players":      submittedPlayers,
 		"voted_players":          votedPlayers,
+		"scores":                 scores,
 	}
 
 	if lobby.State == StateReveal || lobby.State == StateEnd {
-		stateMsg["scores"] = scores
 		stateMsg["votes"] = lobby.Votes
 	}
 
 	for _, user := range lobby.Users {
+		if !user.Connected || user.Send == nil {
+			continue
+		}
+
 		userMsg := make(map[string]interface{})
 		for k, v := range stateMsg {
 			userMsg[k] = v

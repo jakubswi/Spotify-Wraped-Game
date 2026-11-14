@@ -28,14 +28,15 @@ export interface GameState {
 @Injectable({ providedIn: 'root' })
 export class GameService implements OnDestroy {
   private ws: WebSocket | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private manualDisconnect = false;
+  private currentLobbyId = '';
 
   public gameState$ = new BehaviorSubject<GameState | null>(null);
   public username = '';
 
   private getWebSocketUrl(): string {
-    const protocol =
-      window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${protocol}//${window.location.host}/ws`;
   }
 
@@ -45,10 +46,19 @@ export class GameService implements OnDestroy {
 
     if (!cleanLobbyId || !cleanUsername) return;
 
-    if (this.ws) {
-      this.disconnect();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
 
+    if (this.ws) {
+      this.manualDisconnect = true;
+      this.ws.close();
+      this.ws = null;
+    }
+
+    this.manualDisconnect = false;
+    this.currentLobbyId = cleanLobbyId;
     this.username = cleanUsername;
     this.ws = new WebSocket(this.getWebSocketUrl());
 
@@ -65,8 +75,6 @@ export class GameService implements OnDestroy {
         if (data.type === 'STATE_UPDATE') {
           const prev = this.gameState$.value;
 
-          // Preserve the same current_song reference during mid-round vote updates
-          // so Angular does not reset or reload the host's music player.
           if (
             prev?.current_song &&
             data.current_song &&
@@ -85,8 +93,13 @@ export class GameService implements OnDestroy {
     };
 
     this.ws.onclose = () => {
-      console.warn('WebSocket disconnected.');
       this.ws = null;
+      if (!this.manualDisconnect && this.currentLobbyId && this.username) {
+        console.warn('WebSocket disconnected. Reconnecting in 2s...');
+        this.reconnectTimer = setTimeout(() => {
+          this.connect(this.currentLobbyId, this.username);
+        }, 2000);
+      }
     };
 
     this.ws.onerror = (error) => {
@@ -103,6 +116,11 @@ export class GameService implements OnDestroy {
   }
 
   disconnect() {
+    this.manualDisconnect = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;

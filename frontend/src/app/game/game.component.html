@@ -178,7 +178,7 @@
             </div>
             <iframe *ngIf="spotifyEmbedUrl" [src]="spotifyEmbedUrl" title="Spotify mystery track player" width="100%" height="80" frameborder="0" allowtransparency="true" allow="encrypted-media"></iframe>
             <div class="host-voting-controls" style="margin-top: 1rem;">
-              <p class="host-hint">{{ votesCastCount }} of {{ state.players.length > 1 ? state.players.length - 1 : 0 }} votes in</p>
+              <p class="host-hint">{{ votesCastCount }} of {{ eligibleVotersCount }} votes in</p>
               <button type="button" class="button button-primary" (click)="revealSong()">Stop music &amp; reveal <span>↗</span></button>
             </div>
           </div>
