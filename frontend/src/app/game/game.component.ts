@@ -69,6 +69,7 @@ export class GameComponent implements OnInit, OnDestroy {
           this.hasVoted = false;
         }
       }
+
       if (newState.state === 'SUBMIT' && newState.submitted_players?.[this.gameService.username]) {
         this.hasSubmitted = true;
       }
@@ -124,19 +125,6 @@ export class GameComponent implements OnInit, OnDestroy {
     const players = [...(this.state?.players ?? [])];
     const scores = this.state?.scores ?? {};
     return players.sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0));
-  }
-  get everyoneSubmitted(): boolean {
-    const players = this.state?.players ?? [];
-    const connected = this.state?.connected_players;
-    const activePlayers = connected ? players.filter(p => connected[p] !== false) : players;
-    return activePlayers.length > 0 && activePlayers.every(player => this.state?.submitted_players?.[player] === true);
-  }
-
-  get eligibleVotersCount(): number {
-    const players = this.state?.players ?? [];
-    const connected = this.state?.connected_players;
-    const activePlayers = connected ? players.filter(p => connected[p] !== false) : players;
-    return activePlayers.length > 1 ? activePlayers.length - 1 : 0;
   }
 
   getInitials(name: string): string {
