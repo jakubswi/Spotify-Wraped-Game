@@ -6,17 +6,77 @@ on:
   pull_request:
     branches: [ "master" ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: spotify-wrapped-game
 
 jobs:
+  sonar-scan:
+    name: Code Quality & SonarCloud Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Vet & Test Go Backend (with Coverage)
+        working-directory: backend
+        run: |
+          go vet ./...
+          go test -race -coverprofile=coverage.out ./...
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Angular Frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build -- --configuration=production
+
+      - name: Run SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
   build-and-push:
-    name: Build and Push Docker Images
+    name: Build, Scan & Sign (${{ matrix.service }})
+    needs: [ sonar-scan ]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      security-events: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            context: ./backend
+            dockerfile: ./docker/backend/Dockerfile
+          - service: frontend
+            context: ./frontend
+            dockerfile: ./docker/frontend/Dockerfile
+    env:
+      IS_MASTER_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+      IMAGE_REF: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-${{ matrix.service }}
 
     steps:
       - name: Checkout repository
@@ -25,34 +85,96 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to the Container registry
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      - name: Build OCI Tarball for Pre-Push Security Scan
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          outputs: type=oci,dest=/tmp/${{ matrix.service }}.tar
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Scan Image with Trivy (SARIF)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          input: /tmp/${{ matrix.service }}.tar
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+
+      - name: Upload Trivy Results to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+          category: trivy-${{ matrix.service }}
+
+      - name: Enforce Trivy Vulnerability Gate
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          input: /tmp/${{ matrix.service }}.tar
+          format: table
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+      - name: Log in to GitHub Container Registry
+        if: env.IS_MASTER_PUSH == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push backend
-        uses: docker/build-push-action@v5
+      - name: Push Image with SBOM & Provenance Attestations
+        id: push
+        if: env.IS_MASTER_PUSH == 'true'
+        uses: docker/build-push-action@v6
         with:
-          context: ./backend
-          file: ./docker/backend/Dockerfile
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           push: true
+          provenance: true
+          sbom: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/spotify-wrapped-game-backend:latest
-            ghcr.io/${{ github.repository_owner }}/spotify-wrapped-game-backend:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ${{ env.IMAGE_REF }}:latest
+            ${{ env.IMAGE_REF }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
 
-      - name: Build and push Frontend Image
-        uses: docker/build-push-action@v5
+      - name: Install Cosign
+        if: env.IS_MASTER_PUSH == 'true'
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Sign Container Image (Keyless OIDC)
+        if: env.IS_MASTER_PUSH == 'true'
+        run: cosign sign --yes ${{ env.IMAGE_REF }}@${{ steps.push.outputs.digest }}
+
+  deploy:
+    name: Update GitOps Manifests for ArgoCD
+    needs: [build-and-push]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    env:
+      VALUES_FILE: gitops/apps/spotify-wrapped/values.yaml
+    steps:
+      - name: Checkout Homelab GitOps Repository
+        uses: actions/checkout@v4
         with:
-          context: ./frontend
-          file: ./docker/frontend/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/spotify-wrapped-game-frontend:latest
-            ghcr.io/${{ github.repository_owner }}/spotify-wrapped-game-frontend:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          repository: ${{ secrets.GITOPS_REPO }}
+          token: ${{ secrets.GITOPS_REPO_TOKEN }}
+          path: gitops
+
+      - name: Update Image Tags in Helm Values
+        run: |
+          yq -i '.backend.image.tag = strenv(GITHUB_SHA)' "$VALUES_FILE"
+          yq -i '.frontend.image.tag = strenv(GITHUB_SHA)' "$VALUES_FILE"
+          git -C gitops diff
+
+      - name: Commit & Push to GitOps Repository
+        run: |
+          git -C gitops config user.name "github-actions[bot]"
+          git -C gitops config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C gitops add -A
+          if git -C gitops diff --staged --quiet; then
