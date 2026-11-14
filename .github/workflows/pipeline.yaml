@@ -46,11 +46,11 @@ jobs:
       - name: Build Angular Frontend
         working-directory: frontend
         run: |
-          npm ci
+          npm ci --ignore-scripts
           npm run build -- --configuration=production
 
       - name: Run SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v4
+        uses: SonarSource/sonarqube-scan-action@<40-char-commit-sha>
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -86,7 +86,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build OCI Tarball for Pre-Push Security Scan
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@<40-char-commit-sha>
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
@@ -95,7 +95,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
       - name: Scan Image with Trivy (SARIF)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@<40-char-commit-sha>
         with:
           input: /tmp/${{ matrix.service }}.tar
           format: sarif
@@ -112,7 +112,7 @@ jobs:
           category: trivy-${{ matrix.service }}
 
       - name: Enforce Trivy Vulnerability Gate
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@<40-char-commit-sha>
         with:
           input: /tmp/${{ matrix.service }}.tar
           format: table
@@ -145,7 +145,7 @@ jobs:
 
       - name: Install Cosign
         if: env.IS_MASTER_PUSH == 'true'
-        uses: sigstore/cosign-installer@v3.7.0
+        uses: sigstore/cosign-installer@<40-char-commit-sha>
 
       - name: Sign Container Image (Keyless OIDC)
         if: env.IS_MASTER_PUSH == 'true'
