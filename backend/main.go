@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -61,7 +60,6 @@ type Lobby struct {
 	Votes       map[string]string
 	Round       int
 	Mutex       sync.Mutex
-	CancelTimer context.CancelFunc
 }
 
 var lobbies = make(map[string]*Lobby)
@@ -71,9 +69,11 @@ var spotifyAppToken string
 var tokenExpiry time.Time
 var tokenMutex sync.RWMutex
 
-func getStringField(m map[string]interface{}, key string) string {
-	if v, ok := m[key].(string); ok {
-		return v
+func getStringField(m map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if v, ok := m[key].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
 	}
 	return ""
 }
@@ -234,9 +234,6 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 				lobbiesMutex.Lock()
 				delete(lobbies, currentLobby.ID)
 				lobbiesMutex.Unlock()
-				if currentLobby.CancelTimer != nil {
-					currentLobby.CancelTimer()
-				}
 			} else {
 				broadcastLobbyState(currentLobby)
 			}
@@ -257,8 +254,8 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 
 		switch action {
 		case "JOIN_LOBBY":
-			lobbyID := strings.TrimSpace(strings.ToUpper(getStringField(msg, "lobby_id")))
-			userIDReq := strings.TrimSpace(getStringField(msg, "username"))
+			lobbyID := strings.ToUpper(getStringField(msg, "lobby_id"))
+			userIDReq := getStringField(msg, "username")
 			if lobbyID == "" || userIDReq == "" {
 				continue
 			}
@@ -355,10 +352,6 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 						currentLobby.AllSongs[i], currentLobby.AllSongs[j] = currentLobby.AllSongs[j], currentLobby.AllSongs[i]
 					})
 				}
-
-				if currentLobby.CancelTimer != nil {
-					currentLobby.CancelTimer()
-				}
 				currentLobby.Mutex.Unlock()
 				playNextSong(currentLobby)
 			}
@@ -367,15 +360,40 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 			if currentLobby == nil {
 				continue
 			}
-			votedFor := getStringField(msg, "voted_for")
+			votedFor := getStringField(msg, "voted_for", "vote", "player", "target")
+			if votedFor == "" {
+				slog.Warn("CAST_VOTE missing target player", "user_id", userID, "payload", msg)
+				continue
+			}
+
 			currentLobby.Mutex.Lock()
-			if currentLobby.State == StateVoting {
-				if currentLobby.CurrentSong != nil && currentLobby.CurrentSong.OwnerID != userID {
+			if currentLobby.State == StateVoting && currentLobby.CurrentSong != nil {
+				if !strings.EqualFold(currentLobby.CurrentSong.OwnerID, userID) {
 					currentLobby.Votes[userID] = votedFor
+					slog.Info("Vote recorded", "voter", userID, "voted_for", votedFor, "owner", currentLobby.CurrentSong.OwnerID)
 				}
 			}
 			currentLobby.Mutex.Unlock()
 			broadcastLobbyState(currentLobby)
+
+		case "REVEAL_SONG", "STOP_VOTING", "REVEAL":
+			if currentLobby != nil && userID == currentLobby.HostID {
+				currentLobby.Mutex.Lock()
+				if currentLobby.State == StateVoting && currentLobby.CurrentSong != nil {
+					currentLobby.State = StateReveal
+					for voter, votedFor := range currentLobby.Votes {
+						if strings.EqualFold(strings.TrimSpace(votedFor), strings.TrimSpace(currentLobby.CurrentSong.OwnerID)) {
+							if voterUser, exists := currentLobby.Users[voter]; exists {
+								voterUser.Score += 100
+							}
+						}
+					}
+					currentLobby.Mutex.Unlock()
+					broadcastLobbyState(currentLobby)
+				} else {
+					currentLobby.Mutex.Unlock()
+				}
+			}
 
 		default:
 			slog.Warn("Unknown WebSocket action received", "action", action, "user_id", userID)
@@ -421,35 +439,9 @@ func playNextSong(lobby *Lobby) {
 	lobby.State = StateVoting
 	lobby.Votes = make(map[string]string)
 	lobby.Round++
-
-	ctx, cancel := context.WithCancel(context.Background())
-	lobby.CancelTimer = cancel
-	currentRound := lobby.Round
 	lobby.Mutex.Unlock()
 
 	broadcastLobbyState(lobby)
-
-	go func(ctx context.Context, l *Lobby, expectedRound int) {
-		select {
-		case <-time.After(45 * time.Second):
-			l.Mutex.Lock()
-			if l.State == StateVoting && l.Round == expectedRound {
-				l.State = StateReveal
-				for voter, votedFor := range l.Votes {
-					if votedFor == l.CurrentSong.OwnerID {
-						if voterUser, exists := l.Users[voter]; exists {
-							voterUser.Score += 100
-						}
-					}
-				}
-				l.Mutex.Unlock()
-				broadcastLobbyState(l)
-			} else {
-				l.Mutex.Unlock()
-			}
-		case <-ctx.Done():
-		}
-	}(ctx, lobby, currentRound)
 }
 
 func broadcastLobbyState(lobby *Lobby) {
@@ -458,21 +450,26 @@ func broadcastLobbyState(lobby *Lobby) {
 
 	players := []string{}
 	submittedPlayers := make(map[string]bool)
+	votedPlayers := make(map[string]bool)
 	scores := make(map[string]int)
 
 	for id, u := range lobby.Users {
 		players = append(players, id)
 		submittedPlayers[id] = u.HasSubmitted
+		_, hasVoted := lobby.Votes[id]
+		votedPlayers[id] = hasVoted
 		scores[id] = u.Score
 	}
 
 	stateMsg := map[string]interface{}{
 		"type":              "STATE_UPDATE",
 		"state":             lobby.State,
+		"round":             lobby.Round,
 		"host":              lobby.HostID,
 		"current_song":      lobby.CurrentSong,
 		"players":           players,
 		"submitted_players": submittedPlayers,
+		"voted_players":     votedPlayers,
 	}
 
 	if lobby.State == StateReveal || lobby.State == StateEnd {

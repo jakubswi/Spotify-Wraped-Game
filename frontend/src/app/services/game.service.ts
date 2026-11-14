@@ -12,10 +12,12 @@ export interface Song {
 
 export interface GameState {
   state: 'LOBBY' | 'SUBMIT' | 'VOTING' | 'REVEAL' | 'END';
+  round?: number;
   host: string;
   current_song?: Song;
   players: string[];
   submitted_players: Record<string, boolean>;
+  voted_players?: Record<string, boolean>;
   scores?: Record<string, number>;
   votes?: Record<string, string>;
 }
@@ -56,8 +58,22 @@ export class GameService implements OnDestroy {
 
     this.ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
+        const data: GameState & { type?: string } = JSON.parse(event.data);
         if (data.type === 'STATE_UPDATE') {
+          const prev = this.gameState$.value;
+
+          // Preserve the same current_song reference during mid-round vote updates
+          // so Angular does not reset or reload the host's music player.
+          if (
+            prev?.current_song &&
+            data.current_song &&
+            prev.round === data.round &&
+            prev.current_song.uri === data.current_song.uri &&
+            prev.current_song.owner_id === data.current_song.owner_id
+          ) {
+            data.current_song = prev.current_song;
+          }
+
           this.gameState$.next(data);
         }
       } catch (e) {

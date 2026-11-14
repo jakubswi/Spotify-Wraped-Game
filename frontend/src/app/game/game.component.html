@@ -157,7 +157,11 @@
           <div class="mystery-record" aria-hidden="true"><div class="mystery-record-rings"></div><div class="mystery-record-label">B<span>.</span></div></div>
           <div class="listening-copy" *ngIf="isHost">
             <span class="small-tag">YOU’RE THE DJ</span><h2>Play the mystery track.</h2><p>Only you control the music this round. Keep the title to yourself.</p>
-            <iframe *ngIf="state.current_song?.id" [src]="getSpotifyEmbedUrl(state.current_song?.id)" title="Spotify mystery track player" width="100%" height="80" frameborder="0" allowtransparency="true" allow="encrypted-media"></iframe>
+            <iframe *ngIf="spotifyEmbedUrl" [src]="spotifyEmbedUrl" title="Spotify mystery track player" width="100%" height="80" frameborder="0" allowtransparency="true" allow="encrypted-media"></iframe>
+            <div class="host-voting-controls" style="margin-top: 1rem;">
+              <p class="host-hint">{{ votesCastCount }} of {{ state.players.length > 1 ? state.players.length - 1 : 0 }} votes in</p>
+              <button type="button" class="button button-primary" (click)="revealSong()">Stop music &amp; reveal <span>↗</span></button>
+            </div>
           </div>
           <div class="listening-copy" *ngIf="!isHost"><span class="small-tag">LISTENING NOW</span><h2>Let the music tell you.</h2><p>The host is playing a track from someone in the room. Who do you think picked it?</p></div>
           <div class="equalizer" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>

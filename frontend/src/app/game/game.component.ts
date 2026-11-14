@@ -39,10 +39,15 @@ export class GameComponent implements OnInit, OnDestroy {
     return this.sanitizer.bypassSecurityTrustResourceUrl(url);
   }
 
+  spotifyEmbedUrl: SafeResourceUrl | null = null;
+  private currentEmbedTrackId = '';
+
   ngOnInit(): void {
     this.stateSub = this.gameService.gameState$.subscribe(newState => {
       if (!newState) {
         this.state = null;
+        this.spotifyEmbedUrl = null;
+        this.currentEmbedTrackId = '';
         return;
       }
 
@@ -54,11 +59,32 @@ export class GameComponent implements OnInit, OnDestroy {
           this.searchResults = [];
           this.searchQuery = '';
         }
-        if (newState.state === 'VOTING') this.hasVoted = false;
+        if (newState.state === 'VOTING') {
+          this.hasVoted = false;
+        }
+      }
+
+      const trackId = newState.current_song?.id ?? '';
+      if (trackId && trackId !== this.currentEmbedTrackId) {
+        this.currentEmbedTrackId = trackId;
+        const url = `https://open.spotify.com/embed/track/${trackId}?utm_source=generator`;
+        this.spotifyEmbedUrl = this.sanitizer.bypassSecurityTrustResourceUrl(url);
+      } else if (!trackId) {
+        this.currentEmbedTrackId = '';
+        this.spotifyEmbedUrl = null;
       }
 
       this.state = newState;
     });
+  }
+
+  get votesCastCount(): number {
+    return Object.values(this.state?.voted_players ?? {}).filter(Boolean).length;
+  }
+
+  revealSong(): void {
+    if (!this.isHost) return;
+    this.gameService.sendAction('REVEAL_SONG');
   }
 
   ngOnDestroy(): void {
