@@ -69,6 +69,12 @@ export class GameComponent implements OnInit, OnDestroy {
           this.hasVoted = false;
         }
       }
+      if (newState.state === 'SUBMIT' && newState.submitted_players?.[this.gameService.username]) {
+        this.hasSubmitted = true;
+      }
+      if (newState.state === 'VOTING' && newState.voted_players?.[this.gameService.username]) {
+        this.hasVoted = true;
+      }
 
       const trackId = newState.current_song?.id ?? '';
       if (trackId && trackId !== this.currentEmbedTrackId) {
@@ -102,7 +108,16 @@ export class GameComponent implements OnInit, OnDestroy {
 
   get everyoneSubmitted(): boolean {
     const players = this.state?.players ?? [];
-    return players.length > 0 && players.every(player => this.state?.submitted_players?.[player] === true);
+    const connected = this.state?.connected_players;
+    const activePlayers = connected ? players.filter(p => connected[p] !== false) : players;
+    return activePlayers.length > 0 && activePlayers.every(player => this.state?.submitted_players?.[player] === true);
+  }
+
+  get eligibleVotersCount(): number {
+    const players = this.state?.players ?? [];
+    const connected = this.state?.connected_players;
+    const activePlayers = connected ? players.filter(p => connected[p] !== false) : players;
+    return activePlayers.length > 1 ? activePlayers.length - 1 : 0;
   }
 
   get rankedPlayers(): string[] {

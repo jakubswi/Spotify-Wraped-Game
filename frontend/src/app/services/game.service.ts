@@ -19,6 +19,7 @@ export interface GameState {
   playback_error?: string;
   current_song?: Song;
   players: string[];
+  connected_players?: Record<string, boolean>;
   submitted_players: Record<string, boolean>;
   voted_players?: Record<string, boolean>;
   scores?: Record<string, number>;
