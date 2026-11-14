@@ -86,7 +86,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build OCI Tarball for Pre-Push Security Scan
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
@@ -131,7 +131,7 @@ jobs:
       - name: Push Image with SBOM & Provenance Attestations
         id: push
         if: env.IS_MASTER_PUSH == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
