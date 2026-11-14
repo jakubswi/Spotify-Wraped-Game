@@ -3,6 +3,11 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
+export interface SpotifyAuthStatus {
+  authenticated: boolean;
+  display_name?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SpotifyService {
   private apiUrl = '/api/spotify/search';
@@ -21,5 +26,13 @@ export class SpotifyService {
         }));
       })
     );
+  }
+
+  checkAuthStatus(): Observable<SpotifyAuthStatus> {
+    return this.http.get<SpotifyAuthStatus>('/api/spotify/status');
+  }
+
+  loginWithSpotify(): void {
+    window.location.href = '/api/spotify/login';
   }
 }

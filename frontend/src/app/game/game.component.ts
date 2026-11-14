@@ -27,22 +27,28 @@ export class GameComponent implements OnInit, OnDestroy {
   isSearching = false;
   searchError = '';
 
+  spotifyAuthenticated = false;
+  spotifyDisplayName = '';
+  spotifyEmbedUrl: SafeResourceUrl | null = null;
+  private currentEmbedTrackId = '';
+
   constructor(
     public gameService: GameService,
     private spotifyService: SpotifyService,
     private sanitizer: DomSanitizer
   ) {}
 
-  getSpotifyEmbedUrl(trackId: string | undefined): SafeResourceUrl | string {
-    if (!trackId) return '';
-    const url = `https://open.spotify.com/embed/track/${trackId}?utm_source=generator`;
-    return this.sanitizer.bypassSecurityTrustResourceUrl(url);
-  }
-
-  spotifyEmbedUrl: SafeResourceUrl | null = null;
-  private currentEmbedTrackId = '';
-
   ngOnInit(): void {
+    this.spotifyService.checkAuthStatus().subscribe({
+      next: status => {
+        this.spotifyAuthenticated = status.authenticated;
+        this.spotifyDisplayName = status.display_name || '';
+      },
+      error: () => {
+        this.spotifyAuthenticated = false;
+      }
+    });
+
     this.stateSub = this.gameService.gameState$.subscribe(newState => {
       if (!newState) {
         this.state = null;
@@ -78,21 +84,16 @@ export class GameComponent implements OnInit, OnDestroy {
     });
   }
 
-  get votesCastCount(): number {
-    return Object.values(this.state?.voted_players ?? {}).filter(Boolean).length;
-  }
-
-  revealSong(): void {
-    if (!this.isHost) return;
-    this.gameService.sendAction('REVEAL_SONG');
-  }
-
   ngOnDestroy(): void {
     if (this.stateSub) this.stateSub.unsubscribe();
   }
 
   get isHost(): boolean {
     return this.state?.host === this.gameService.username;
+  }
+
+  get votesCastCount(): number {
+    return Object.values(this.state?.voted_players ?? {}).filter(Boolean).length;
   }
 
   get submissionsReadyCount(): number {
@@ -118,6 +119,10 @@ export class GameComponent implements OnInit, OnDestroy {
 
   avatarTone(index: number): string {
     return `avatar-tone-${index % 5 + 1}`;
+  }
+
+  connectSpotify(): void {
+    this.spotifyService.loginWithSpotify();
   }
 
   join(): void {
@@ -175,6 +180,16 @@ export class GameComponent implements OnInit, OnDestroy {
 
   startGame(): void {
     this.gameService.sendAction('START_GAME');
+  }
+
+  retryPlayback(): void {
+    if (!this.isHost) return;
+    this.gameService.sendAction('PLAY_CURRENT');
+  }
+
+  revealSong(): void {
+    if (!this.isHost) return;
+    this.gameService.sendAction('REVEAL_SONG');
   }
 
   voteForPlayer(player: string): void {

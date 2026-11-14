@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	cryptorand "crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -50,20 +53,35 @@ type Song struct {
 }
 
 type Lobby struct {
-	ID          string
-	Name        string
-	HostID      string
-	Users       map[string]*User
-	State       GameState
-	AllSongs    []Song
-	CurrentSong *Song
-	Votes       map[string]string
-	Round       int
-	Mutex       sync.Mutex
+	ID                 string
+	Name               string
+	HostID             string
+	HostSpotifySession string
+	PlaylistID         string
+	PlaylistURL        string
+	PlaybackError      string
+	Users              map[string]*User
+	State              GameState
+	AllSongs           []Song
+	CurrentSong        *Song
+	Votes              map[string]string
+	Round              int
+	Mutex              sync.Mutex
+}
+
+type SpotifyUserSession struct {
+	AccessToken  string
+	RefreshToken string
+	Expiry       time.Time
+	DisplayName  string
+	Mutex        sync.Mutex
 }
 
 var lobbies = make(map[string]*Lobby)
 var lobbiesMutex = sync.Mutex{}
+
+var spotifySessions = make(map[string]*SpotifyUserSession)
+var spotifySessionsMutex = sync.RWMutex{}
 
 var spotifyAppToken string
 var tokenExpiry time.Time
@@ -86,6 +104,32 @@ func getSecret(name string, envFallback string) string {
 	return os.Getenv(envFallback)
 }
 
+func generateRandomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := cryptorand.Read(b); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
+}
+
+func getRedirectURI(r *http.Request) string {
+	if configured := getSecret("SPOTIFY_REDIRECT_URI", "SPOTIFY_REDIRECT_URI"); configured != "" {
+		return configured
+	}
+	scheme := "http"
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	} else if r.TLS != nil {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s/api/spotify/callback", scheme, r.Host)
+}
+
+func isSecureRequest(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+// App-level Client Credentials token for /api/spotify/search
 func ensureSpotifyToken() error {
 	tokenMutex.RLock()
 	isValid := time.Now().Before(tokenExpiry) && spotifyAppToken != ""
@@ -128,6 +172,76 @@ func ensureSpotifyToken() error {
 	return fmt.Errorf("failed to retrieve access_token")
 }
 
+// Host-level Authorization Code token retrieval + auto-refresh
+func getValidUserToken(sessionID string) (string, error) {
+	if sessionID == "" {
+		return "", fmt.Errorf("no spotify session")
+	}
+
+	spotifySessionsMutex.RLock()
+	session, exists := spotifySessions[sessionID]
+	spotifySessionsMutex.RUnlock()
+	if !exists {
+		return "", fmt.Errorf("spotify session not found")
+	}
+
+	session.Mutex.Lock()
+	defer session.Mutex.Unlock()
+
+	if session.AccessToken != "" && time.Now().Before(session.Expiry) {
+		return session.AccessToken, nil
+	}
+
+	if session.RefreshToken == "" {
+		return "", fmt.Errorf("no refresh token available")
+	}
+
+	clientID := getSecret("CLIENT_ID", "CLIENT_ID")
+	clientSecret := getSecret("CLIENT_SECRET", "CLIENT_SECRET")
+
+	form := url.Values{}
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", session.RefreshToken)
+
+	req, _ := http.NewRequest("POST", "https://accounts.spotify.com/api/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(clientID+":"+clientSecret)))
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("token refresh failed (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	token, ok := result["access_token"].(string)
+	if !ok || token == "" {
+		return "", fmt.Errorf("missing access_token in refresh response")
+	}
+
+	session.AccessToken = token
+	if expiresIn, ok := result["expires_in"].(float64); ok {
+		session.Expiry = time.Now().Add(time.Duration(expiresIn-60) * time.Second)
+	} else {
+		session.Expiry = time.Now().Add(50 * time.Minute)
+	}
+	if newRefresh, ok := result["refresh_token"].(string); ok && newRefresh != "" {
+		session.RefreshToken = newRefresh
+	}
+
+	return session.AccessToken, nil
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
@@ -137,10 +251,324 @@ func main() {
 	})
 	http.HandleFunc("/api/lobbies", handleGetLobbies)
 	http.HandleFunc("/api/spotify/search", handleSpotifySearch)
+	http.HandleFunc("/api/spotify/login", handleSpotifyLogin)
+	http.HandleFunc("/api/spotify/callback", handleSpotifyCallback)
+	http.HandleFunc("/api/spotify/status", handleSpotifyStatus)
 	http.HandleFunc("/ws", handleConnections)
 
 	slog.Info("Go backend starting on :5000")
 	http.ListenAndServe(":5000", nil)
+}
+
+func handleSpotifyLogin(w http.ResponseWriter, r *http.Request) {
+	clientID := getSecret("CLIENT_ID", "CLIENT_ID")
+	if clientID == "" {
+		http.Error(w, "Spotify CLIENT_ID not configured", http.StatusInternalServerError)
+		return
+	}
+
+	state := generateRandomHex(16)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "spotify_oauth_state",
+		Value:    state,
+		Path:     "/",
+		MaxAge:   600,
+		HttpOnly: true,
+		Secure:   isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	scopes := strings.Join([]string{
+		"playlist-modify-private",
+		"playlist-modify-public",
+		"user-modify-playback-state",
+		"user-read-playback-state",
+		"streaming",
+	}, " ")
+
+	params := url.Values{}
+	params.Set("client_id", clientID)
+	params.Set("response_type", "code")
+	params.Set("redirect_uri", getRedirectURI(r))
+	params.Set("scope", scopes)
+	params.Set("state", state)
+
+	http.Redirect(w, r, "https://accounts.spotify.com/authorize?"+params.Encode(), http.StatusFound)
+}
+
+func handleSpotifyCallback(w http.ResponseWriter, r *http.Request) {
+	if errParam := r.URL.Query().Get("error"); errParam != "" {
+		slog.Warn("Spotify OAuth denied", "error", errParam)
+		http.Redirect(w, r, "/?spotify_error="+url.QueryEscape(errParam), http.StatusFound)
+		return
+	}
+
+	stateCookie, err := r.Cookie("spotify_oauth_state")
+	if err != nil || stateCookie.Value == "" || stateCookie.Value != r.URL.Query().Get("state") {
+		http.Error(w, "Invalid OAuth state", http.StatusBadRequest)
+		return
+	}
+
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		http.Error(w, "Missing authorization code", http.StatusBadRequest)
+		return
+	}
+
+	clientID := getSecret("CLIENT_ID", "CLIENT_ID")
+	clientSecret := getSecret("CLIENT_SECRET", "CLIENT_SECRET")
+
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", code)
+	form.Set("redirect_uri", getRedirectURI(r))
+
+	req, _ := http.NewRequest("POST", "https://accounts.spotify.com/api/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(clientID+":"+clientSecret)))
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "Failed to exchange Spotify token", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		slog.Error("Spotify token exchange failed", "status", resp.StatusCode, "body", string(body))
+		http.Error(w, "Spotify token exchange failed", http.StatusBadGateway)
+		return
+	}
+
+	var tokenResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		http.Error(w, "Invalid token response", http.StatusBadGateway)
+		return
+	}
+
+	accessToken, _ := tokenResp["access_token"].(string)
+	refreshToken, _ := tokenResp["refresh_token"].(string)
+	expiresIn, _ := tokenResp["expires_in"].(float64)
+	if expiresIn == 0 {
+		expiresIn = 3600
+	}
+
+	displayName := fetchSpotifyDisplayName(accessToken)
+	sessionID := generateRandomHex(24)
+
+	spotifySessionsMutex.Lock()
+	spotifySessions[sessionID] = &SpotifyUserSession{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		Expiry:       time.Now().Add(time.Duration(expiresIn-60) * time.Second),
+		DisplayName:  displayName,
+	}
+	spotifySessionsMutex.Unlock()
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "spotify_session",
+		Value:    sessionID,
+		Path:     "/",
+		MaxAge:   86400 * 7,
+		HttpOnly: true,
+		Secure:   isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func fetchSpotifyDisplayName(accessToken string) string {
+	req, _ := http.NewRequest("GET", "https://api.spotify.com/v1/me", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var profile map[string]interface{}
+	if json.NewDecoder(resp.Body).Decode(&profile) == nil {
+		if name, ok := profile["display_name"].(string); ok {
+			return name
+		}
+	}
+	return ""
+}
+
+func handleSpotifyStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	cookie, err := r.Cookie("spotify_session")
+	if err != nil || cookie.Value == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"authenticated": false})
+		return
+	}
+
+	if _, err := getValidUserToken(cookie.Value); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"authenticated": false})
+		return
+	}
+
+	spotifySessionsMutex.RLock()
+	session := spotifySessions[cookie.Value]
+	displayName := ""
+	if session != nil {
+		displayName = session.DisplayName
+	}
+	spotifySessionsMutex.RUnlock()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"authenticated": true,
+		"display_name":  displayName,
+	})
+}
+
+func createSpotifyPlaylist(sessionID, lobbyID string, songs []Song) (string, string, error) {
+	token, err := getValidUserToken(sessionID)
+	if err != nil {
+		return "", "", err
+	}
+
+	createPayload := map[string]interface{}{
+		"name":        fmt.Sprintf("Wrapped Game - Room %s", lobbyID),
+		"description": "Generated automatically during Spotify Wrapped Guessing Game",
+		"public":      false,
+	}
+	bodyBytes, _ := json.Marshal(createPayload)
+
+	req, _ := http.NewRequest("POST", "https://api.spotify.com/v1/me/playlists", bytes.NewReader(bodyBytes))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(resp.Body)
+		return "", "", fmt.Errorf("create playlist failed (%d): %s", resp.StatusCode, string(errBody))
+	}
+
+	var playlistResp struct {
+		ID           string            `json:"id"`
+		ExternalURLs map[string]string `json:"external_urls"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&playlistResp); err != nil {
+		return "", "", err
+	}
+
+	uris := make([]string, 0, len(songs))
+	for _, s := range songs {
+		if strings.HasPrefix(s.URI, "spotify:track:") {
+			uris = append(uris, s.URI)
+		}
+	}
+
+	// Add tracks in batches of 100 (Spotify API limit)
+	for i := 0; i < len(uris); i += 100 {
+		end := i + 100
+		if end > len(uris) {
+			end = len(uris)
+		}
+		addPayload, _ := json.Marshal(map[string]interface{}{"uris": uris[i:end]})
+		addURL := fmt.Sprintf("https://api.spotify.com/v1/playlists/%s/tracks", url.PathEscape(playlistResp.ID))
+		addReq, _ := http.NewRequest("POST", addURL, bytes.NewReader(addPayload))
+		addReq.Header.Set("Authorization", "Bearer "+token)
+		addReq.Header.Set("Content-Type", "application/json")
+
+		addResp, err := client.Do(addReq)
+		if err != nil {
+			return playlistResp.ID, playlistResp.ExternalURLs["spotify"], err
+		}
+		if addResp.StatusCode != http.StatusCreated && addResp.StatusCode != http.StatusOK {
+			errBody, _ := io.ReadAll(addResp.Body)
+			addResp.Body.Close()
+			return playlistResp.ID, playlistResp.ExternalURLs["spotify"], fmt.Errorf("add tracks failed (%d): %s", addResp.StatusCode, string(errBody))
+		}
+		addResp.Body.Close()
+	}
+
+	return playlistResp.ID, playlistResp.ExternalURLs["spotify"], nil
+}
+
+func triggerHostPlayback(lobby *Lobby, trackURI string) {
+	lobby.Mutex.Lock()
+	sessionID := lobby.HostSpotifySession
+	lobby.Mutex.Unlock()
+
+	if sessionID == "" || trackURI == "" {
+		return
+	}
+
+	token, err := getValidUserToken(sessionID)
+	if err != nil {
+		slog.Warn("Host playback skipped: invalid Spotify token", "err", err)
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"uris": []string{trackURI},
+	})
+
+	req, _ := http.NewRequest("PUT", "https://api.spotify.com/v1/me/player/play", bytes.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 6 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		slog.Warn("Spotify play request error", "err", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var playbackErr string
+	if resp.StatusCode == http.StatusNotFound {
+		playbackErr = "No active Spotify device found. Open Spotify on your phone or PC to enable auto-play, or use the mini-player below."
+	} else if resp.StatusCode == http.StatusForbidden {
+		playbackErr = "Spotify Connect auto-play requires Spotify Premium. Use the mini-player below to play the track."
+	} else if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		slog.Warn("Spotify play failed", "status", resp.StatusCode, "body", string(body))
+		playbackErr = "Could not auto-start Spotify client. Use the mini-player below."
+	}
+
+	lobby.Mutex.Lock()
+	changed := lobby.PlaybackError != playbackErr
+	lobby.PlaybackError = playbackErr
+	lobby.Mutex.Unlock()
+
+	if changed {
+		broadcastLobbyState(lobby)
+	}
+}
+
+func pauseHostPlayback(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	token, err := getValidUserToken(sessionID)
+	if err != nil {
+		return
+	}
+
+	req, _ := http.NewRequest("PUT", "https://api.spotify.com/v1/me/player/pause", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err == nil {
+		resp.Body.Close()
+	}
 }
 
 func handleGetLobbies(w http.ResponseWriter, r *http.Request) {
@@ -206,6 +634,11 @@ func handleSpotifySearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleConnections(w http.ResponseWriter, r *http.Request) {
+	var spotifySessionID string
+	if c, err := r.Cookie("spotify_session"); err == nil {
+		spotifySessionID = c.Value
+	}
+
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -265,17 +698,21 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 			lobbiesMutex.Lock()
 			if _, exists := lobbies[lobbyID]; !exists {
 				lobbies[lobbyID] = &Lobby{
-					ID:     lobbyID,
-					HostID: userID,
-					Users:  make(map[string]*User),
-					State:  StateLobby,
-					Votes:  make(map[string]string),
+					ID:                 lobbyID,
+					HostID:             userID,
+					HostSpotifySession: spotifySessionID,
+					Users:              make(map[string]*User),
+					State:              StateLobby,
+					Votes:              make(map[string]string),
 				}
 			}
 			currentLobby = lobbies[lobbyID]
 			lobbiesMutex.Unlock()
 
 			currentLobby.Mutex.Lock()
+			if userID == currentLobby.HostID && spotifySessionID != "" {
+				currentLobby.HostSpotifySession = spotifySessionID
+			}
 			if existingUser, exists := currentLobby.Users[userID]; exists {
 				close(existingUser.Send)
 			}
@@ -335,6 +772,10 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 
 		case "START_GAME", "NEXT_SONG":
 			if currentLobby != nil && userID == currentLobby.HostID {
+				var shouldCreatePlaylist bool
+				var sessionID, lobbyID string
+				var songsCopy []Song
+
 				currentLobby.Mutex.Lock()
 				if currentLobby.State == StateSubmit {
 					currentLobby.AllSongs = []Song{}
@@ -351,9 +792,43 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 					rand.Shuffle(len(currentLobby.AllSongs), func(i, j int) {
 						currentLobby.AllSongs[i], currentLobby.AllSongs[j] = currentLobby.AllSongs[j], currentLobby.AllSongs[i]
 					})
+
+					if currentLobby.HostSpotifySession != "" && currentLobby.PlaylistID == "" {
+						shouldCreatePlaylist = true
+						sessionID = currentLobby.HostSpotifySession
+						lobbyID = currentLobby.ID
+						songsCopy = append([]Song(nil), currentLobby.AllSongs...)
+					}
 				}
 				currentLobby.Mutex.Unlock()
+
+				if shouldCreatePlaylist {
+					playlistID, playlistURL, err := createSpotifyPlaylist(sessionID, lobbyID, songsCopy)
+					if err != nil {
+						slog.Error("Failed to create Spotify playlist", "lobby_id", lobbyID, "err", err)
+					} else {
+						slog.Info("Created Spotify playlist", "lobby_id", lobbyID, "playlist_id", playlistID, "url", playlistURL)
+						currentLobby.Mutex.Lock()
+						currentLobby.PlaylistID = playlistID
+						currentLobby.PlaylistURL = playlistURL
+						currentLobby.Mutex.Unlock()
+					}
+				}
+
 				playNextSong(currentLobby)
+			}
+
+		case "PLAY_CURRENT":
+			if currentLobby != nil && userID == currentLobby.HostID {
+				currentLobby.Mutex.Lock()
+				var uri string
+				if currentLobby.State == StateVoting && currentLobby.CurrentSong != nil {
+					uri = currentLobby.CurrentSong.URI
+				}
+				currentLobby.Mutex.Unlock()
+				if uri != "" {
+					go triggerHostPlayback(currentLobby, uri)
+				}
 			}
 
 		case "CAST_VOTE":
@@ -362,7 +837,6 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 			}
 			votedFor := getStringField(msg, "voted_for", "vote", "player", "target")
 			if votedFor == "" {
-				slog.Warn("CAST_VOTE missing target player", "user_id", userID, "payload", msg)
 				continue
 			}
 
@@ -370,7 +844,6 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 			if currentLobby.State == StateVoting && currentLobby.CurrentSong != nil {
 				if !strings.EqualFold(currentLobby.CurrentSong.OwnerID, userID) {
 					currentLobby.Votes[userID] = votedFor
-					slog.Info("Vote recorded", "voter", userID, "voted_for", votedFor, "owner", currentLobby.CurrentSong.OwnerID)
 				}
 			}
 			currentLobby.Mutex.Unlock()
@@ -381,6 +854,7 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 				currentLobby.Mutex.Lock()
 				if currentLobby.State == StateVoting && currentLobby.CurrentSong != nil {
 					currentLobby.State = StateReveal
+					sessionID := currentLobby.HostSpotifySession
 					for voter, votedFor := range currentLobby.Votes {
 						if strings.EqualFold(strings.TrimSpace(votedFor), strings.TrimSpace(currentLobby.CurrentSong.OwnerID)) {
 							if voterUser, exists := currentLobby.Users[voter]; exists {
@@ -390,6 +864,7 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 					}
 					currentLobby.Mutex.Unlock()
 					broadcastLobbyState(currentLobby)
+					go pauseHostPlayback(sessionID)
 				} else {
 					currentLobby.Mutex.Unlock()
 				}
@@ -429,6 +904,7 @@ func playNextSong(lobby *Lobby) {
 	lobby.Mutex.Lock()
 	if len(lobby.AllSongs) == 0 {
 		lobby.State = StateEnd
+		lobby.PlaybackError = ""
 		lobby.Mutex.Unlock()
 		broadcastLobbyState(lobby)
 		return
@@ -438,10 +914,13 @@ func playNextSong(lobby *Lobby) {
 	lobby.AllSongs = lobby.AllSongs[1:]
 	lobby.State = StateVoting
 	lobby.Votes = make(map[string]string)
+	lobby.PlaybackError = ""
 	lobby.Round++
+	trackURI := lobby.CurrentSong.URI
 	lobby.Mutex.Unlock()
 
 	broadcastLobbyState(lobby)
+	go triggerHostPlayback(lobby, trackURI)
 }
 
 func broadcastLobbyState(lobby *Lobby) {
@@ -462,14 +941,17 @@ func broadcastLobbyState(lobby *Lobby) {
 	}
 
 	stateMsg := map[string]interface{}{
-		"type":              "STATE_UPDATE",
-		"state":             lobby.State,
-		"round":             lobby.Round,
-		"host":              lobby.HostID,
-		"current_song":      lobby.CurrentSong,
-		"players":           players,
-		"submitted_players": submittedPlayers,
-		"voted_players":     votedPlayers,
+		"type":                   "STATE_UPDATE",
+		"state":                  lobby.State,
+		"round":                  lobby.Round,
+		"host":                   lobby.HostID,
+		"host_spotify_connected": lobby.HostSpotifySession != "",
+		"playlist_url":           lobby.PlaylistURL,
+		"playback_error":         lobby.PlaybackError,
+		"current_song":           lobby.CurrentSong,
+		"players":                players,
+		"submitted_players":      submittedPlayers,
+		"voted_players":          votedPlayers,
 	}
 
 	if lobby.State == StateReveal || lobby.State == StateEnd {

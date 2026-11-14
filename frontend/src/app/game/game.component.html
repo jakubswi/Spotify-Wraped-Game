@@ -42,6 +42,14 @@
             Enter Game
           </button>
         </form>
+        <div class="spotify-host-box" style="margin-top: 1.25rem; text-align: center;">
+          <p *ngIf="spotifyAuthenticated" class="small-tag">
+            ✓ Spotify Connected{{ spotifyDisplayName ? ' (' + spotifyDisplayName + ')' : '' }}
+          </p>
+          <button *ngIf="!spotifyAuthenticated" type="button" class="button button-dark button-wide" (click)="connectSpotify()">
+            Connect Spotify (Required for Host)
+          </button>
+        </div>
       </div>
     </section>
 
@@ -156,7 +164,18 @@
         <div class="listening-card">
           <div class="mystery-record" aria-hidden="true"><div class="mystery-record-rings"></div><div class="mystery-record-label">B<span>.</span></div></div>
           <div class="listening-copy" *ngIf="isHost">
-            <span class="small-tag">YOU’RE THE DJ</span><h2>Play the mystery track.</h2><p>Only you control the music this round. Keep the title to yourself.</p>
+            <span class="small-tag">YOU’RE THE DJ</span>
+            <h2>Play the mystery track.</h2>
+            <p *ngIf="state.host_spotify_connected && !state.playback_error">
+              Playing on your Spotify account. Keep the title to yourself.
+            </p>
+            <p *ngIf="!state.host_spotify_connected && !state.playback_error">
+              Only you control the music this round. Keep the title to yourself.
+            </p>
+            <div *ngIf="state.playback_error" style="margin-bottom: 0.75rem;">
+              <p class="search-error">{{ state.playback_error }}</p>
+              <button type="button" class="button button-dark" (click)="retryPlayback()">Retry Spotify Play</button>
+            </div>
             <iframe *ngIf="spotifyEmbedUrl" [src]="spotifyEmbedUrl" title="Spotify mystery track player" width="100%" height="80" frameborder="0" allowtransparency="true" allow="encrypted-media"></iframe>
             <div class="host-voting-controls" style="margin-top: 1rem;">
               <p class="host-hint">{{ votesCastCount }} of {{ state.players.length > 1 ? state.players.length - 1 : 0 }} votes in</p>
@@ -218,6 +237,11 @@
             <span class="player-avatar" [ngClass]="avatarTone(i)">{{ getInitials(player) }}</span>
             <span class="score-player"><strong>{{ player }}</strong><small>{{ i === 0 ? 'THE TASTE MAKER' : (player === state.host ? 'HOST' : 'PLAYER') }}</small></span>
             <span class="score-points"><strong>{{ state.scores?.[player] || 0 }}</strong><small>PTS</small></span>
+          </div>
+          <div *ngIf="state.playlist_url" style="margin-top: 1rem; text-align: center;">
+            <a [href]="state.playlist_url" target="_blank" rel="noopener" class="button button-primary">
+              Open Room Playlist on Spotify <span>↗</span>
+            </a>
           </div>
         </section>
       </section>

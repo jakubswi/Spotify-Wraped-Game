@@ -14,6 +14,9 @@ export interface GameState {
   state: 'LOBBY' | 'SUBMIT' | 'VOTING' | 'REVEAL' | 'END';
   round?: number;
   host: string;
+  host_spotify_connected?: boolean;
+  playlist_url?: string;
+  playback_error?: string;
   current_song?: Song;
   players: string[];
   submitted_players: Record<string, boolean>;
