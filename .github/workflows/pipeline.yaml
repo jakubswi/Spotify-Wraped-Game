@@ -90,6 +90,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
+          pull: true
           tags: ${{ env.IMAGE_REF }}:${{ github.sha }}
           outputs: type=docker,dest=/tmp/${{ matrix.service }}.tar
           cache-from: type=gha,scope=${{ matrix.service }}

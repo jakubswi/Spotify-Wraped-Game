@@ -1,6 +1,10 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+USER root
+RUN apk update && apk upgrade --no-cache
+USER 101
+
 COPY package*.json ./
 RUN npm install
 
