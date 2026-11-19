@@ -271,7 +271,7 @@ func handleSpotifyLogin(w http.ResponseWriter, r *http.Request) {
 
 	state := generateRandomHex(16)
 	http.SetCookie(w, &http.Cookie{
-        Name:     "oauth_state",
+        Name:     "spotify_oauth_state",
         Value:    state,
         Path:     "/",
         MaxAge:   300,
@@ -370,14 +370,24 @@ func handleSpotifyCallback(w http.ResponseWriter, r *http.Request) {
 	spotifySessionsMutex.Unlock()
 
 	http.SetCookie(w, &http.Cookie{
-        Name:     "oauth_state",
-        Value:    state,
+        Name:     "spotify_oauth_state",
+        Value:    "",
         Path:     "/",
-        MaxAge:   300,
+        MaxAge:   -1,
         HttpOnly: true,
         Secure:   true,
         SameSite: http.SameSiteLaxMode,
     })
+
+    http.SetCookie(w, &http.Cookie{
+		Name:     "spotify_session",
+		Value:    sessionID,
+		Path:     "/",
+		MaxAge:   86400 * 7,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	http.Redirect(w, r, "/", http.StatusFound)
 }
