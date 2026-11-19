@@ -80,7 +80,11 @@ export class GameComponent implements OnInit, OnDestroy {
       const trackId = newState.current_song?.id ?? '';
       if (trackId && trackId !== this.currentEmbedTrackId) {
         this.currentEmbedTrackId = trackId;
-        const url = `https://open.spotify.com/embed/track/${trackId}?utm_source=generator`;
+        const spotifyIdPattern = /^[a-zA-Z0-9]{22}$/;
+        if (!spotifyIdPattern.test(trackId)) {
+          throw new Error('Invalid Spotify track ID');
+        }
+        const url = `https://open.spotify.com/embed/track/${trackId}`;
         this.spotifyEmbedUrl = this.sanitizer.bypassSecurityTrustResourceUrl(url);
       } else if (!trackId) {
         this.currentEmbedTrackId = '';
